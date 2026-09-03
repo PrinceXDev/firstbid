@@ -1,0 +1,155 @@
+[
+  {
+    "name": "getPerpPools",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address[]"
+      }
+    ]
+  },
+  {
+    "name": "perpPoolCount",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getBaseTokenForPool",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "getPoolForBaseToken",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "baseToken"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "isDeployedByFactory",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "supportsInterface",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bytes4",
+        "name": "interfaceId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "getPerpPoolStatuses",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "tuple[]",
+        "name": "statuses",
+        "components": [
+          {
+            "type": "address",
+            "name": "perpPool"
+          },
+          {
+            "type": "address",
+            "name": "baseToken"
+          },
+          {
+            "type": "bool",
+            "name": "restricted"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getUnrestrictedPerpPools",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address[]",
+        "name": "perpPools"
+      }
+    ]
+  },
+  {
+    "name": "getRestrictedPerpPools",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address[]",
+        "name": "perpPools"
+      }
+    ]
+  },
+  {
+    "name": "getStopOrderRegistry",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address",
+        "name": "stopOrderRegistry"
+      }
+    ]
+  }
+]

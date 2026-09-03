@@ -1,0 +1,13 @@
+[
+  {
+    "name": "getOperatorPermissionsRegistry",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  }
+]

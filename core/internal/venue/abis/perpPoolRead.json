@@ -1,0 +1,397 @@
+[
+  {
+    "name": "marginBank",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "oracle",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "getMarkPrice",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getIndexPrice",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "price"
+      },
+      {
+        "type": "uint256",
+        "name": "updatedAt"
+      }
+    ]
+  },
+  {
+    "name": "getCurrentFundingRate",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "int256"
+      }
+    ]
+  },
+  {
+    "name": "getCumulativeFundingPerUnit",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "int256"
+      }
+    ]
+  },
+  {
+    "name": "getProjectedCumulativeFundingPerUnit",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "int256"
+      }
+    ]
+  },
+  {
+    "name": "getOpenInterest",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "openInterest"
+      }
+    ]
+  },
+  {
+    "name": "getOneBase",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getFundingParameters",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "uint256",
+            "name": "fundingCalculationWindowSec"
+          },
+          {
+            "type": "uint256",
+            "name": "fundingSettlementIntervalSec"
+          },
+          {
+            "type": "int256",
+            "name": "interestRatePerWindow"
+          },
+          {
+            "type": "uint256",
+            "name": "maxFundingRatePerWindow"
+          },
+          {
+            "type": "uint256",
+            "name": "dampener"
+          },
+          {
+            "type": "uint256",
+            "name": "emaSmoothingAlpha"
+          },
+          {
+            "type": "uint256",
+            "name": "maxOracleStalenessSec"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getLastFundingUpdateTimestampNs",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "getEmaPremium",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "int256"
+      }
+    ]
+  },
+  {
+    "name": "tryGetMarkPrice",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "bool",
+        "name": "ok"
+      },
+      {
+        "type": "uint256",
+        "name": "price"
+      }
+    ]
+  },
+  {
+    "name": "getOrderBookParameters",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "uint256",
+            "name": "tickSize"
+          },
+          {
+            "type": "uint256",
+            "name": "minQuantity"
+          },
+          {
+            "type": "uint256",
+            "name": "lotSize"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getPerpPoolParameters",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "uint256",
+            "name": "initialMarginBps"
+          },
+          {
+            "type": "uint256",
+            "name": "maintenanceMarginBps"
+          },
+          {
+            "type": "uint256",
+            "name": "closeOutMarginBps"
+          },
+          {
+            "type": "uint256",
+            "name": "maxOpenInterest"
+          },
+          {
+            "type": "uint256",
+            "name": "maxPositionSize"
+          },
+          {
+            "type": "uint256",
+            "name": "takerFeeBpsTimes1k"
+          },
+          {
+            "type": "int256",
+            "name": "makerFeeBpsTimes1k"
+          },
+          {
+            "type": "uint256",
+            "name": "insuranceFundShareBps"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getEffectiveIMF",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getHealthSnapshot",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "tuple",
+        "name": "snapshot",
+        "components": [
+          {
+            "type": "uint256",
+            "name": "oneBase"
+          },
+          {
+            "type": "uint256",
+            "name": "markPrice"
+          },
+          {
+            "type": "int256",
+            "name": "projectedCumulativeFunding"
+          },
+          {
+            "type": "uint256",
+            "name": "effectiveIMFBps"
+          },
+          {
+            "type": "uint256",
+            "name": "maintenanceMarginBps"
+          },
+          {
+            "type": "uint256",
+            "name": "closeOutMarginBps"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "tryGetHealthSnapshot",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "bool",
+        "name": "ok"
+      },
+      {
+        "type": "tuple",
+        "name": "snapshot",
+        "components": [
+          {
+            "type": "uint256",
+            "name": "oneBase"
+          },
+          {
+            "type": "uint256",
+            "name": "markPrice"
+          },
+          {
+            "type": "int256",
+            "name": "projectedCumulativeFunding"
+          },
+          {
+            "type": "uint256",
+            "name": "effectiveIMFBps"
+          },
+          {
+            "type": "uint256",
+            "name": "maintenanceMarginBps"
+          },
+          {
+            "type": "uint256",
+            "name": "closeOutMarginBps"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getReducingCapacity",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "tuple",
+        "name": "capacity",
+        "components": [
+          {
+            "type": "int128",
+            "name": "positionSize"
+          },
+          {
+            "type": "uint256",
+            "name": "pendingBidQuantity"
+          },
+          {
+            "type": "uint256",
+            "name": "pendingAskQuantity"
+          },
+          {
+            "type": "uint256",
+            "name": "pendingOppositeQuantity"
+          },
+          {
+            "type": "uint256",
+            "name": "effectiveReducingCapacity"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "isRestricted",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  }
+]

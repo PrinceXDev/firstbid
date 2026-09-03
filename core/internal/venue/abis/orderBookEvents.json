@@ -1,0 +1,179 @@
+[
+  {
+    "type": "event",
+    "name": "OrderPlaced",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "uint128",
+        "indexed": true
+      },
+      {
+        "name": "placedOrder",
+        "type": "tuple",
+        "indexed": false,
+        "components": [
+          {
+            "name": "orderId",
+            "type": "uint128"
+          },
+          {
+            "name": "isBid",
+            "type": "bool"
+          },
+          {
+            "name": "owner",
+            "type": "address"
+          },
+          {
+            "name": "userData",
+            "type": "uint64"
+          },
+          {
+            "name": "price",
+            "type": "uint256"
+          },
+          {
+            "name": "fullQuantity",
+            "type": "uint256"
+          },
+          {
+            "name": "quantityRemaining",
+            "type": "uint256"
+          },
+          {
+            "name": "expireTimestampNs",
+            "type": "uint64"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OrderRested",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "uint128",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OrderCancelled",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "uint128",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OrderExpired",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "uint128",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OrderReduced",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "uint128",
+        "indexed": true
+      },
+      {
+        "name": "newQuantity",
+        "type": "uint256",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OrderFilled",
+    "inputs": [
+      {
+        "name": "takerOrderId",
+        "type": "uint128",
+        "indexed": true
+      },
+      {
+        "name": "makerOrderId",
+        "type": "uint128",
+        "indexed": true
+      },
+      {
+        "name": "quantityFilled",
+        "type": "uint256",
+        "indexed": false
+      },
+      {
+        "name": "takerRemainingQuantity",
+        "type": "uint256",
+        "indexed": false
+      },
+      {
+        "name": "makerRemainingQuantity",
+        "type": "uint256",
+        "indexed": false
+      },
+      {
+        "name": "fillPrice",
+        "type": "uint256",
+        "indexed": false
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OrderCancelledSelfMatch",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "uint128",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MakerOrderCancelledExceedsPosition",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "uint128",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OrderCancelledPreFill",
+    "inputs": [
+      {
+        "name": "orderId",
+        "type": "uint128",
+        "indexed": true
+      }
+    ],
+    "anonymous": false
+  }
+]

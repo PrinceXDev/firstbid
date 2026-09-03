@@ -1,0 +1,154 @@
+@import "tailwindcss";
+
+/*
+  Instrument — Firstbid's design language.
+
+  The reference is scientific instrumentation, not a crypto app: an
+  oscilloscope, a spectrum analyser. The housing is neutral so the reading is
+  legible. Colour is reserved for meaning and used sparingly enough that when it
+  appears, it means something.
+*/
+@theme {
+  --color-void: #08090b;
+  --color-surface: #0f1115;
+  --color-raised: #15181e;
+  --color-hairline: #1e232c;
+  --color-hairline-2: #2a313d;
+
+  --color-ink: #e8ecf1;
+  --color-ink-2: #9aa5b4;
+  --color-ink-3: #5f6a7a;
+
+  --color-up: #3ddc97;
+  --color-down: #ff6b6b;
+  /* The ONLY blue in the product. It means "this value came from our model." */
+  --color-model: #7aa2f7;
+  --color-warn: #f5a623;
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius-instrument: 6px;
+}
+
+/* Every number is tabular so digits never jitter as values tick. A probability
+   that reflows its own layout while updating is unreadable. */
+:root {
+  color-scheme: dark;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "cv05" 1;
+}
+
+html,
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* Typography scale — major third, tightened at the display end. */
+.t-display {
+  font-family: var(--font-mono);
+  font-size: 56px;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  font-weight: 500;
+}
+.t-h1 {
+  font-size: 32px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+.t-h2 {
+  font-size: 21px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+.t-data {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.4;
+}
+/* Labels and axes only. Never body copy. */
+.t-micro {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.3;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+}
+
+/* Structure is hairlines, never shadows. */
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-instrument);
+}
+
+.hairline-t { border-top: 1px solid var(--color-hairline); }
+.hairline-b { border-bottom: 1px solid var(--color-hairline); }
+.hairline-l { border-left: 1px solid var(--color-hairline); }
+
+/* Focus must be unmistakable and must never be removed. */
+:focus-visible {
+  outline: 2px solid var(--color-model);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-model) 30%, transparent);
+}
+
+/* Thin, unobtrusive scrollbars — the chrome should disappear. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-hairline-2) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-hairline-2);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* A value that just changed briefly lifts, so the eye is drawn to the change
+   rather than to the whole field of numbers. */
+@keyframes tick-up {
+  from { color: var(--color-up); }
+  to { color: inherit; }
+}
+@keyframes tick-down {
+  from { color: var(--color-down); }
+  to { color: inherit; }
+}
+.ticked-up { animation: tick-up 900ms ease-out; }
+.ticked-down { animation: tick-down 900ms ease-out; }
+
+/* The live indicator: slow enough to read as "alive", never as "urgent". */
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.breathe { animation: breathe 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

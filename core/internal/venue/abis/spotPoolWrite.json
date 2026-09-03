@@ -1,0 +1,127 @@
+[
+  {
+    "name": "placeOrder",
+    "type": "function",
+    "stateMutability": "payable",
+    "inputs": [
+      {
+        "type": "bool",
+        "name": "isBid"
+      },
+      {
+        "type": "uint64",
+        "name": "userData"
+      },
+      {
+        "type": "uint256",
+        "name": "price"
+      },
+      {
+        "type": "uint256",
+        "name": "quantity"
+      },
+      {
+        "type": "uint64",
+        "name": "expireTimestampNs"
+      },
+      {
+        "type": "uint8",
+        "name": "orderType"
+      },
+      {
+        "type": "uint8",
+        "name": "selfMatchingOption"
+      },
+      {
+        "type": "address",
+        "name": "builder"
+      },
+      {
+        "type": "uint96",
+        "name": "builderFeeBpsTimes1k"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "cancelOrder",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint128",
+        "name": "orderId"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "amendOrder",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "tuple",
+        "name": "request",
+        "components": [
+          {
+            "type": "uint128",
+            "name": "oldOrderId"
+          },
+          {
+            "type": "bool",
+            "name": "alwaysPlace"
+          },
+          {
+            "type": "tuple",
+            "name": "newOrder",
+            "components": [
+              {
+                "type": "bool",
+                "name": "isBid"
+              },
+              {
+                "type": "uint64",
+                "name": "userData"
+              },
+              {
+                "type": "uint256",
+                "name": "price"
+              },
+              {
+                "type": "uint256",
+                "name": "quantity"
+              },
+              {
+                "type": "uint64",
+                "name": "expireTimestampNs"
+              },
+              {
+                "type": "uint8",
+                "name": "orderType"
+              },
+              {
+                "type": "uint8",
+                "name": "selfMatchingOption"
+              },
+              {
+                "type": "address",
+                "name": "builder"
+              },
+              {
+                "type": "uint96",
+                "name": "builderFeeBpsTimes1k"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint128",
+        "name": "newOrderId"
+      }
+    ]
+  }
+]

@@ -1,0 +1,429 @@
+[
+  {
+    "name": "getBookLevels",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bool",
+        "name": "isBid"
+      },
+      {
+        "type": "uint64",
+        "name": "numLevels"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "tuple[]",
+        "components": [
+          {
+            "type": "uint256",
+            "name": "price"
+          },
+          {
+            "type": "uint256",
+            "name": "quantity"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getOrderBookParameters",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "uint256",
+            "name": "tickSize"
+          },
+          {
+            "type": "uint256",
+            "name": "minQuantity"
+          },
+          {
+            "type": "uint256",
+            "name": "lotSize"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getMaxBuilderFeeBpsTimes1k",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getBuilderApproval",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "user"
+      },
+      {
+        "type": "address",
+        "name": "builder"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getEffectiveBuilderApproval",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "user"
+      },
+      {
+        "type": "address",
+        "name": "builder"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "marketNonce",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "settlement",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "finalized",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "booksEmpty",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "marketExpiryNs",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "setBacking",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "closingPrice",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "closingMid"
+      },
+      {
+        "type": "uint256",
+        "name": "oneCollateral"
+      },
+      {
+        "type": "uint8",
+        "name": "state"
+      }
+    ]
+  },
+  {
+    "name": "closingTop",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "maxSteps"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "bestBid"
+      },
+      {
+        "type": "uint256",
+        "name": "bestAsk"
+      },
+      {
+        "type": "bool",
+        "name": "bidFound"
+      },
+      {
+        "type": "bool",
+        "name": "askFound"
+      }
+    ]
+  },
+  {
+    "name": "getBinaryPoolParams",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "address",
+            "name": "collateralToken"
+          },
+          {
+            "type": "address",
+            "name": "market"
+          },
+          {
+            "type": "address",
+            "name": "outcomeToken"
+          },
+          {
+            "type": "uint256",
+            "name": "yesId"
+          },
+          {
+            "type": "uint256",
+            "name": "noId"
+          },
+          {
+            "type": "uint256",
+            "name": "oneCollateral"
+          },
+          {
+            "type": "uint256",
+            "name": "setBacking"
+          },
+          {
+            "type": "address",
+            "name": "feeRecipient"
+          },
+          {
+            "type": "uint256",
+            "name": "makerFeeBpsTimes1k"
+          },
+          {
+            "type": "uint256",
+            "name": "takerFeeBpsTimes1k"
+          },
+          {
+            "type": "uint256",
+            "name": "maxBuilderFeeBpsTimes1k"
+          },
+          {
+            "type": "uint256",
+            "name": "settlementFeeBpsTimes1k"
+          },
+          {
+            "type": "address",
+            "name": "settlement"
+          },
+          {
+            "type": "uint64",
+            "name": "marketNonce"
+          },
+          {
+            "type": "bool",
+            "name": "finalized"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getOrder",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint128",
+        "name": "orderId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "uint128",
+            "name": "orderId"
+          },
+          {
+            "type": "bool",
+            "name": "isBid"
+          },
+          {
+            "type": "address",
+            "name": "owner"
+          },
+          {
+            "type": "uint64",
+            "name": "userData"
+          },
+          {
+            "type": "uint256",
+            "name": "price"
+          },
+          {
+            "type": "uint256",
+            "name": "fullQuantity"
+          },
+          {
+            "type": "uint256",
+            "name": "quantityRemaining"
+          },
+          {
+            "type": "uint64",
+            "name": "expireTimestampNs"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getOwnOpenOrders",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint128[]"
+      }
+    ]
+  },
+  {
+    "name": "getAllOpenOrdersOffChain",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bool",
+        "name": "isBid"
+      },
+      {
+        "type": "uint256",
+        "name": "maxCount"
+      },
+      {
+        "type": "uint64",
+        "name": "startCursor"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "tuple[]",
+        "name": "orders",
+        "components": [
+          {
+            "type": "uint128",
+            "name": "orderId"
+          },
+          {
+            "type": "bool",
+            "name": "isBid"
+          },
+          {
+            "type": "address",
+            "name": "owner"
+          },
+          {
+            "type": "uint64",
+            "name": "userData"
+          },
+          {
+            "type": "uint256",
+            "name": "price"
+          },
+          {
+            "type": "uint256",
+            "name": "fullQuantity"
+          },
+          {
+            "type": "uint256",
+            "name": "quantityRemaining"
+          },
+          {
+            "type": "uint64",
+            "name": "expireTimestampNs"
+          }
+        ]
+      },
+      {
+        "type": "bool",
+        "name": "hasMoreOrders"
+      },
+      {
+        "type": "uint64",
+        "name": "nextCursor"
+      }
+    ]
+  },
+  {
+    "name": "IncorrectOrder",
+    "type": "error",
+    "inputs": []
+  }
+]

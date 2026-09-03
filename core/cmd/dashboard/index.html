@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Firstbid</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121722; --line:#1e2634; --ink:#e6edf6;
+    --dim:#8695ad; --accent:#5eead4; --warn:#fbbf24; --bad:#f87171; --good:#4ade80;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:28px 32px 20px;border-bottom:1px solid var(--line)}
+  h1{margin:0;font-size:26px;letter-spacing:-.02em}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--dim);margin-top:6px;max-width:70ch}
+  main{padding:24px 32px 64px;display:grid;gap:24px;max-width:1180px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
+  .panel h2{margin:0 0 4px;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+  .panel .note{color:var(--dim);font-size:13px;margin:0 0 16px;max-width:78ch}
+  .kpis{display:flex;flex-wrap:wrap;gap:28px;margin:14px 0 4px}
+  .kpi .v{font:600 27px/1.1 var(--mono);letter-spacing:-.02em}
+  .kpi .l{color:var(--dim);font-size:12px;margin-top:4px}
+  .good{color:var(--good)} .bad{color:var(--bad)} .warn{color:var(--warn)} .acc{color:var(--accent)}
+  table{width:100%;border-collapse:collapse;font:13px/1.5 var(--mono)}
+  th{text-align:right;color:var(--dim);font-weight:500;padding:7px 10px;border-bottom:1px solid var(--line);
+     font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:7px 10px;border-bottom:1px solid rgba(30,38,52,.55);text-align:right;white-space:nowrap}
+  tbody tr:hover{background:rgba(94,234,212,.045)}
+  .verdict{text-align:left;color:var(--dim);white-space:normal}
+  .scroll{overflow-x:auto}
+  .muted{color:var(--dim)}
+  .tag{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;
+       border:1px solid var(--line);color:var(--dim)}
+  .err{color:var(--warn);font:13px var(--mono)}
+  footer{color:var(--dim);font-size:12px;padding:0 32px 40px;max-width:80ch}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>First<span>bid</span></h1>
+  <div class="sub">A calibrated market maker for DreamDEX Event Contracts.
+    It takes no view on direction — these markets are a fair coin. It prices the
+    spread, and only where the model has been validated.</div>
+</header>
+
+<main>
+  <!-- 1. THE PROOF -->
+  <section class="panel">
+    <h2>Model calibration — out of sample</h2>
+    <p class="note">
+      Every resolved window replayed using only information available at that
+      moment. The one free parameter was fitted on the <b>older half</b>; the
+      numbers below score the <b>newer half it has never seen</b>. A calibrated
+      model tracks the diagonal.
+    </p>
+    <div class="kpis" id="kpis"><span class="muted">loading…</span></div>
+    <div id="relwrap"></div>
+    <div class="scroll"><table id="reltab"></table></div>
+  </section>
+
+  <!-- 2. SKILL OVER THE WINDOW'S LIFE -->
+  <section class="panel">
+    <h2>Where the edge lives</h2>
+    <p class="note">
+      Skill rises as a window closes. This is the whole argument against a flat
+      spread: the incumbent quotes ~0.024 wide at every point in a window's life,
+      which is too tight early and far too wide late.
+    </p>
+    <div class="scroll"><table id="progtab"></table></div>
+  </section>
+
+  <!-- 3. LIVE -->
+  <section class="panel">
+    <h2>Live markets — model vs book</h2>
+    <p class="note">
+      Read straight from the pool contract, not the indexer. Fair value is
+      computed from the live index price and the window's opening price.
+      <span id="spotage" class="tag"></span>
+    </p>
+    <div class="scroll"><table id="livetab"><tbody><tr><td class="muted">loading…</td></tr></tbody></table></div>
+  </section>
+
+  <!-- 4. P&L -->
+  <section class="panel">
+    <h2>Realised P&amp;L, attributed</h2>
+    <p class="note">
+      Every position reaches a terminal, exact value within the hour, so profit
+      is arithmetic. <b>Edge</b> is what we believed we captured
+      (fair − price). <b>Selection</b> is how the outcome differed from that
+      belief. Edge is skill; selection should average toward zero if the model
+      is calibrated.
+    </p>
+    <div class="kpis" id="pnlkpis"><span class="muted">loading…</span></div>
+    <div class="scroll"><table id="pnltab"></table></div>
+  </section>
+</main>
+
+<footer>
+  Somnia Shannon (chain 50312). Fair value =
+  Φ( ln(spot/open) / (σ·√minutes) ), σ measured per asset and cadence from
+  resolved history. No directional forecast is made or implied.
+</footer>
+
+<script>
+const f = (x, n=3) => (x===null||x===undefined||Number.isNaN(x)) ? "—" : Number(x).toFixed(n);
+const pct = x => (x*100).toFixed(1) + "%";
+
+async function get(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error((await r.json().catch(()=>({error:r.statusText}))).error || r.statusText);
+  return r.json();
+}
+
+/* ---------- calibration ---------- */
+function reliabilitySVG(buckets){
+  const W=560,H=300,P=42;
+  const x=v=>P+v*(W-P*2), y=v=>H-P-v*(H-P*2);
+  let pts = buckets.map(b=>`${x(b.predicted)},${y(b.realised)}`).join(" ");
+  let dots = buckets.map(b=>
+    `<circle cx="${x(b.predicted)}" cy="${y(b.realised)}" r="${3+Math.min(6,Math.log10(b.n))}"
+      fill="#5eead4" fill-opacity=".85"><title>n=${b.n}
+predicted ${f(b.predicted)} → realised ${f(b.realised)}</title></circle>`).join("");
+  let ticks="";
+  for(let t=0;t<=1.0001;t+=0.25){
+    ticks += `<line x1="${x(t)}" y1="${H-P}" x2="${x(t)}" y2="${H-P+5}" stroke="#334155"/>
+      <text x="${x(t)}" y="${H-P+19}" fill="#8695ad" font-size="11" text-anchor="middle">${t.toFixed(2)}</text>
+      <line x1="${P-5}" y1="${y(t)}" x2="${P}" y2="${y(t)}" stroke="#334155"/>
+      <text x="${P-10}" y="${y(t)+4}" fill="#8695ad" font-size="11" text-anchor="end">${t.toFixed(2)}</text>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;margin:6px 0 18px">
+    <rect x="${P}" y="${P}" width="${W-P*2}" height="${H-P*2}" fill="#0b0e14" stroke="#1e2634"/>
+    ${ticks}
+    <line x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(1)}" stroke="#475569" stroke-dasharray="4 4"/>
+    <polyline points="${pts}" fill="none" stroke="#5eead4" stroke-width="2"/>
+    ${dots}
+    <text x="${W/2}" y="${H-6}" fill="#8695ad" font-size="11" text-anchor="middle">predicted probability</text>
+    <text x="14" y="${H/2}" fill="#8695ad" font-size="11" text-anchor="middle"
+      transform="rotate(-90 14 ${H/2})">realised frequency</text>
+  </svg>`;
+}
+
+get("/api/calibration").then(r=>{
+  document.getElementById("kpis").innerHTML = `
+    <div class="kpi"><div class="v good">+${r.skill.toFixed(1)}%</div><div class="l">skill vs coin flip</div></div>
+    <div class="kpi"><div class="v">${r.brierModel.toFixed(4)}</div><div class="l">Brier (model)</div></div>
+    <div class="kpi"><div class="v muted">${r.brierBaseline.toFixed(4)}</div><div class="l">Brier (always 0.5)</div></div>
+    <div class="kpi"><div class="v">${r.testN.toLocaleString()}</div><div class="l">out-of-sample predictions</div></div>
+    <div class="kpi"><div class="v">${r.trainN.toLocaleString()}</div><div class="l">used to fit</div></div>`;
+  document.getElementById("relwrap").innerHTML = reliabilitySVG(r.buckets);
+  document.getElementById("reltab").innerHTML =
+    `<thead><tr><th>bucket</th><th>n</th><th>predicted</th><th>realised</th><th>error</th></tr></thead><tbody>` +
+    r.buckets.map(b=>{
+      const e=b.realised-b.predicted;
+      return `<tr><td>${f(b.lo,1)}–${f(b.hi,1)}</td><td>${b.n}</td><td>${f(b.predicted)}</td>
+        <td>${f(b.realised)}</td><td class="${Math.abs(e)<0.05?'good':'warn'}">${e>=0?'+':''}${f(e)}</td></tr>`;
+    }).join("") + `</tbody>`;
+  document.getElementById("progtab").innerHTML =
+    `<thead><tr><th>window elapsed</th><th>n</th><th>brier</th><th>skill</th></tr></thead><tbody>` +
+    r.byProgress.map(p=>`<tr><td>${p.elapsed.toFixed(0)}%</td><td>${p.n}</td>
+      <td>${p.brier.toFixed(4)}</td><td class="good">${p.skill.toFixed(1)}%</td></tr>`).join("") + `</tbody>`;
+}).catch(e=>{
+  document.getElementById("kpis").innerHTML = `<span class="err">${e.message}</span>`;
+});
+
+/* ---------- live ---------- */
+function renderLive(d){
+  document.getElementById("spotage").textContent = "index price " + f(d.spotAgeSec,1) + "s old";
+  if(!d.rows.length){
+    document.getElementById("livetab").innerHTML = `<tbody><tr><td class="muted">no live windows right now</td></tr></tbody>`;
+    return;
+  }
+  document.getElementById("livetab").innerHTML =
+    `<thead><tr><th>market</th><th>t-left</th><th>spot</th><th>open</th><th>fair</th>
+      <th>book</th><th>their spread</th><th>our spread</th><th class="verdict">what we would do</th></tr></thead><tbody>` +
+    d.rows.map(r=>{
+      const book = (r.bid||r.ask) ? `${f(r.bid)}/${f(r.ask)}` : "—";
+      const tighter = r.calibrated && r.ourSpread>0 && r.spread>0 && r.ourSpread < r.spread;
+      return `<tr>
+        <td>${r.label}${r.calibrated?"":' <span class="tag">uncalibrated</span>'}</td>
+        <td>${r.secondsLeft.toFixed(0)}s</td>
+        <td>${r.spot.toFixed(2)}</td>
+        <td>${r.open.toFixed(2)}</td>
+        <td class="acc">${r.calibrated?f(r.fair):"—"}</td>
+        <td>${book}</td>
+        <td>${r.spread?f(r.spread):"—"}</td>
+        <td class="${tighter?'good':''}">${r.calibrated?f(r.ourSpread):"—"}</td>
+        <td class="verdict">${r.verdict}</td></tr>`;
+    }).join("") + `</tbody>`;
+}
+function pollLive(){
+  get("/api/live").then(renderLive).catch(e=>{
+    document.getElementById("livetab").innerHTML = `<tbody><tr><td class="err">${e.message}</td></tr></tbody>`;
+  });
+}
+pollLive(); setInterval(pollLive, 12000);
+
+/* ---------- pnl ---------- */
+get("/api/pnl").then(d=>{
+  const t=d.totals, sign=v=>v>=0?"good":"bad";
+  document.getElementById("pnlkpis").innerHTML = `
+    <div class="kpi"><div class="v ${sign(t.Net)}">${t.Net>=0?'+':''}${f(t.Net,4)}</div><div class="l">net (tUSDC)</div></div>
+    <div class="kpi"><div class="v ${sign(t.Edge)}">${t.Edge>=0?'+':''}${f(t.Edge,4)}</div><div class="l">edge captured</div></div>
+    <div class="kpi"><div class="v ${sign(t.Selection)}">${t.Selection>=0?'+':''}${f(t.Selection,4)}</div><div class="l">selection</div></div>
+    <div class="kpi"><div class="v">${t.Windows}</div><div class="l">settled windows</div></div>
+    <div class="kpi"><div class="v">${t.Fills}</div><div class="l">fills</div></div>`;
+  if(!d.windows.length){
+    document.getElementById("pnltab").innerHTML =
+      `<tbody><tr><td class="muted">no settled windows with fills yet — run the engine with -live, then wait for a window to resolve</td></tr></tbody>`;
+    return;
+  }
+  document.getElementById("pnltab").innerHTML =
+    `<thead><tr><th>window</th><th>fills</th><th>contracts</th><th>cost</th><th>payout</th>
+      <th>edge</th><th>selection</th><th>net</th></tr></thead><tbody>` +
+    d.windows.map(w=>`<tr><td>${w.Label}</td><td>${w.Fills}</td><td>${f(w.Contracts,2)}</td>
+      <td>${f(w.Cost,4)}</td><td>${f(w.Payout,4)}</td>
+      <td class="${w.Edge>=0?'good':'bad'}">${f(w.Edge,4)}</td>
+      <td class="${w.Selection>=0?'good':'bad'}">${f(w.Selection,4)}</td>
+      <td class="${w.Net>=0?'good':'bad'}">${f(w.Net,4)}</td></tr>`).join("") + `</tbody>`;
+}).catch(e=>{
+  document.getElementById("pnlkpis").innerHTML = `<span class="err">${e.message}</span>`;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+[
+  {
+    "name": "placeOrders",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "tuple[]",
+        "name": "requests",
+        "components": [
+          {
+            "type": "bool",
+            "name": "isBid"
+          },
+          {
+            "type": "uint64",
+            "name": "userData"
+          },
+          {
+            "type": "uint256",
+            "name": "price"
+          },
+          {
+            "type": "uint256",
+            "name": "quantity"
+          },
+          {
+            "type": "uint64",
+            "name": "expireTimestampNs"
+          },
+          {
+            "type": "uint8",
+            "name": "orderType"
+          },
+          {
+            "type": "uint8",
+            "name": "selfMatchingOption"
+          },
+          {
+            "type": "address",
+            "name": "builder"
+          },
+          {
+            "type": "uint96",
+            "name": "builderFeeBpsTimes1k"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool[]",
+        "name": "successes"
+      },
+      {
+        "type": "uint128[]",
+        "name": "ids"
+      }
+    ]
+  },
+  {
+    "name": "cancelOrders",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint128[]",
+        "name": "orderIds"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool[]",
+        "name": "cancelled"
+      }
+    ]
+  },
+  {
+    "name": "reduceOrders",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "tuple[]",
+        "name": "requests",
+        "components": [
+          {
+            "type": "uint128",
+            "name": "orderId"
+          },
+          {
+            "type": "uint256",
+            "name": "newQuantityRemaining"
+          }
+        ]
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "amendOrders",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "tuple[]",
+        "name": "requests",
+        "components": [
+          {
+            "type": "uint128",
+            "name": "oldOrderId"
+          },
+          {
+            "type": "bool",
+            "name": "alwaysPlace"
+          },
+          {
+            "type": "tuple",
+            "name": "newOrder",
+            "components": [
+              {
+                "type": "bool",
+                "name": "isBid"
+              },
+              {
+                "type": "uint64",
+                "name": "userData"
+              },
+              {
+                "type": "uint256",
+                "name": "price"
+              },
+              {
+                "type": "uint256",
+                "name": "quantity"
+              },
+              {
+                "type": "uint64",
+                "name": "expireTimestampNs"
+              },
+              {
+                "type": "uint8",
+                "name": "orderType"
+              },
+              {
+                "type": "uint8",
+                "name": "selfMatchingOption"
+              },
+              {
+                "type": "address",
+                "name": "builder"
+              },
+              {
+                "type": "uint96",
+                "name": "builderFeeBpsTimes1k"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint128[]",
+        "name": "newOrderIds"
+      }
+    ]
+  },
+  {
+    "name": "EmptyBatch",
+    "type": "error",
+    "inputs": []
+  }
+]

@@ -1,0 +1,101 @@
+[
+  {
+    "name": "depositETH",
+    "type": "function",
+    "stateMutability": "payable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      },
+      {
+        "type": "address",
+        "name": "onBehalfOf"
+      },
+      {
+        "type": "uint16",
+        "name": "referralCode"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "withdrawETH",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "borrowETH",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      },
+      {
+        "type": "uint256",
+        "name": "interestRateMode"
+      },
+      {
+        "type": "uint16",
+        "name": "referralCode"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "repayETH",
+    "type": "function",
+    "stateMutability": "payable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      },
+      {
+        "type": "uint256",
+        "name": "interestRateMode"
+      },
+      {
+        "type": "address",
+        "name": "onBehalfOf"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "getWETHAddress",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  }
+]

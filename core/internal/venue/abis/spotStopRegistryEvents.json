@@ -1,0 +1,97 @@
+[
+  {
+    "name": "PendingOrderCreated",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint128",
+        "name": "orderId",
+        "indexed": true
+      },
+      {
+        "type": "address",
+        "name": "owner",
+        "indexed": true
+      },
+      {
+        "type": "bool",
+        "name": "isBid"
+      },
+      {
+        "type": "uint256",
+        "name": "quantity"
+      },
+      {
+        "type": "uint256",
+        "name": "triggerPrice"
+      },
+      {
+        "type": "uint8",
+        "name": "triggerOperator"
+      },
+      {
+        "type": "uint8",
+        "name": "orderType"
+      },
+      {
+        "type": "address",
+        "name": "builder"
+      },
+      {
+        "type": "uint96",
+        "name": "builderFeeBpsTimes1k"
+      }
+    ]
+  },
+  {
+    "name": "PendingOrderTriggered",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint128",
+        "name": "pendingOrderId",
+        "indexed": true
+      },
+      {
+        "type": "bool",
+        "name": "success"
+      },
+      {
+        "type": "uint128",
+        "name": "spotOrderId",
+        "indexed": true
+      }
+    ]
+  },
+  {
+    "name": "PendingOrderCancelled",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint128",
+        "name": "orderId",
+        "indexed": true
+      }
+    ]
+  },
+  {
+    "name": "InertOrderCancelled",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint128",
+        "name": "orderId",
+        "indexed": true
+      },
+      {
+        "type": "address",
+        "name": "owner",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "somiCredited"
+      }
+    ]
+  }
+]

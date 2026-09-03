@@ -1,0 +1,752 @@
+[
+  {
+    "name": "scheduleQuestion",
+    "type": "function",
+    "stateMutability": "payable",
+    "inputs": [
+      {
+        "type": "tuple",
+        "name": "def",
+        "components": [
+          {
+            "type": "string",
+            "name": "questionText"
+          },
+          {
+            "type": "tuple[]",
+            "name": "sources",
+            "components": [
+              {
+                "type": "uint8",
+                "name": "sourceType"
+              },
+              {
+                "type": "bytes",
+                "name": "params"
+              }
+            ]
+          },
+          {
+            "type": "tuple",
+            "name": "validAnswers",
+            "components": [
+              {
+                "type": "uint8",
+                "name": "answerType"
+              },
+              {
+                "type": "string[]",
+                "name": "discreteOutcomes"
+              },
+              {
+                "type": "tuple[]",
+                "name": "numericIntervals",
+                "components": [
+                  {
+                    "type": "int256",
+                    "name": "low"
+                  },
+                  {
+                    "type": "int256",
+                    "name": "high"
+                  }
+                ]
+              },
+              {
+                "type": "uint64",
+                "name": "numericDecimals"
+              }
+            ]
+          },
+          {
+            "type": "uint256",
+            "name": "resolutionTime"
+          },
+          {
+            "type": "uint256",
+            "name": "minAgreement"
+          },
+          {
+            "type": "uint256",
+            "name": "subcommitteeSize"
+          },
+          {
+            "type": "uint256",
+            "name": "subcommitteeThreshold"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      }
+    ]
+  },
+  {
+    "name": "getSchedulingCost",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "tuple",
+        "name": "def",
+        "components": [
+          {
+            "type": "string",
+            "name": "questionText"
+          },
+          {
+            "type": "tuple[]",
+            "name": "sources",
+            "components": [
+              {
+                "type": "uint8",
+                "name": "sourceType"
+              },
+              {
+                "type": "bytes",
+                "name": "params"
+              }
+            ]
+          },
+          {
+            "type": "tuple",
+            "name": "validAnswers",
+            "components": [
+              {
+                "type": "uint8",
+                "name": "answerType"
+              },
+              {
+                "type": "string[]",
+                "name": "discreteOutcomes"
+              },
+              {
+                "type": "tuple[]",
+                "name": "numericIntervals",
+                "components": [
+                  {
+                    "type": "int256",
+                    "name": "low"
+                  },
+                  {
+                    "type": "int256",
+                    "name": "high"
+                  }
+                ]
+              },
+              {
+                "type": "uint64",
+                "name": "numericDecimals"
+              }
+            ]
+          },
+          {
+            "type": "uint256",
+            "name": "resolutionTime"
+          },
+          {
+            "type": "uint256",
+            "name": "minAgreement"
+          },
+          {
+            "type": "uint256",
+            "name": "subcommitteeSize"
+          },
+          {
+            "type": "uint256",
+            "name": "subcommitteeThreshold"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "cost"
+      }
+    ]
+  },
+  {
+    "name": "questionKeyOf",
+    "type": "function",
+    "stateMutability": "pure",
+    "inputs": [
+      {
+        "type": "tuple",
+        "name": "def",
+        "components": [
+          {
+            "type": "string",
+            "name": "questionText"
+          },
+          {
+            "type": "tuple[]",
+            "name": "sources",
+            "components": [
+              {
+                "type": "uint8",
+                "name": "sourceType"
+              },
+              {
+                "type": "bytes",
+                "name": "params"
+              }
+            ]
+          },
+          {
+            "type": "tuple",
+            "name": "validAnswers",
+            "components": [
+              {
+                "type": "uint8",
+                "name": "answerType"
+              },
+              {
+                "type": "string[]",
+                "name": "discreteOutcomes"
+              },
+              {
+                "type": "tuple[]",
+                "name": "numericIntervals",
+                "components": [
+                  {
+                    "type": "int256",
+                    "name": "low"
+                  },
+                  {
+                    "type": "int256",
+                    "name": "high"
+                  }
+                ]
+              },
+              {
+                "type": "uint64",
+                "name": "numericDecimals"
+              }
+            ]
+          },
+          {
+            "type": "uint256",
+            "name": "resolutionTime"
+          },
+          {
+            "type": "uint256",
+            "name": "minAgreement"
+          },
+          {
+            "type": "uint256",
+            "name": "subcommitteeSize"
+          },
+          {
+            "type": "uint256",
+            "name": "subcommitteeThreshold"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bytes32",
+        "name": "key"
+      }
+    ]
+  },
+  {
+    "name": "withdraw",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "resolveReserve",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "reserve"
+      }
+    ]
+  },
+  {
+    "name": "earmarkedOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "locked"
+      }
+    ]
+  },
+  {
+    "name": "creditOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "balance"
+      }
+    ]
+  },
+  {
+    "name": "outstandingOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "count"
+      }
+    ]
+  },
+  {
+    "name": "withdrawableOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ]
+  },
+  {
+    "name": "payerCreditOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "payer"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ]
+  },
+  {
+    "name": "payerOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address",
+        "name": "payer"
+      }
+    ]
+  },
+  {
+    "name": "withdrawMyCredit",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "amount"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "operatorOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      }
+    ]
+  },
+  {
+    "name": "reservedFor",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "reserve"
+      }
+    ]
+  },
+  {
+    "name": "bindCount",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint32",
+        "name": "count"
+      }
+    ]
+  },
+  {
+    "name": "marketsForQuestion",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bytes32[]",
+        "name": "markets"
+      }
+    ]
+  },
+  {
+    "name": "questionIdByKey",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "questionKey"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      }
+    ]
+  },
+  {
+    "name": "pendingResolves",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "remaining"
+      }
+    ]
+  },
+  {
+    "name": "continuationSubId",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "MAX_BINDS_PER_QUESTION",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint32"
+      }
+    ]
+  },
+  {
+    "name": "getSlotCount",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint8",
+        "name": "slotCount"
+      }
+    ]
+  },
+  {
+    "name": "pullAnswer",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint8",
+        "name": "outcomeIdx"
+      },
+      {
+        "type": "bool",
+        "name": "voided"
+      }
+    ]
+  },
+  {
+    "name": "pullNumericAnswer",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "int256",
+        "name": "numericValue"
+      },
+      {
+        "type": "bool",
+        "name": "voided"
+      }
+    ]
+  },
+  {
+    "name": "setGasParams",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint64",
+        "name": "priorityFeePerGas"
+      },
+      {
+        "type": "uint64",
+        "name": "maxFeePerGas"
+      },
+      {
+        "type": "uint64",
+        "name": "gasLimit"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "setDrainParams",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint64",
+        "name": "perMarketResolveGas"
+      },
+      {
+        "type": "uint64",
+        "name": "callbackBaseGas"
+      },
+      {
+        "type": "uint32",
+        "name": "maxResolvesPerCallback"
+      },
+      {
+        "type": "uint64",
+        "name": "resolveGasReserve"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "enableReactivity",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "subId"
+      }
+    ]
+  },
+  {
+    "name": "migrateSubscription",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "subId"
+      }
+    ]
+  },
+  {
+    "name": "subscriptionId",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "priorityFeePerGas",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "maxFeePerGas",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "gasLimit",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "perMarketResolveGas",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "callbackBaseGas",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "maxResolvesPerCallback",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint32"
+      }
+    ]
+  },
+  {
+    "name": "resolveGasReserve",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "owner",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  }
+]

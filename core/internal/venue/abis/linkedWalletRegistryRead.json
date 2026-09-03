@@ -1,0 +1,144 @@
+[
+  {
+    "name": "mainOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "wallet"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "childrenOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "main"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address[]"
+      }
+    ]
+  },
+  {
+    "name": "groupOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "wallet"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address[]",
+        "name": "group"
+      }
+    ]
+  },
+  {
+    "name": "areLinked",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "a"
+      },
+      {
+        "type": "address",
+        "name": "b"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "linkageOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "wallet"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "tuple",
+        "name": "linkage",
+        "components": [
+          {
+            "type": "address",
+            "name": "main"
+          },
+          {
+            "type": "address[]",
+            "name": "members"
+          },
+          {
+            "type": "uint64",
+            "name": "linkedAt"
+          },
+          {
+            "type": "uint64",
+            "name": "maturesAt"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "linkedAtOf",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "child"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "linkMaturitySeconds",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint64"
+      }
+    ]
+  },
+  {
+    "name": "maxChildren",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  }
+]

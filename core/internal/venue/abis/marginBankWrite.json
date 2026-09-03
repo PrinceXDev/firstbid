@@ -1,0 +1,42 @@
+[
+  {
+    "name": "deposit",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "withdraw",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "setMaxLeverage",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "perpPool"
+      },
+      {
+        "type": "uint16",
+        "name": "leverageX"
+      }
+    ],
+    "outputs": []
+  }
+]

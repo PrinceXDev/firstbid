@@ -1,0 +1,22 @@
+[
+  {
+    "name": "getWithdrawableBalance",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "owner"
+      },
+      {
+        "type": "address",
+        "name": "token"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  }
+]

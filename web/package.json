@@ -1,0 +1,23 @@
+{
+  "name": "firstbid-web",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "lint": "next lint",
+    "embed": "next build && node scripts/embed.mjs"
+  },
+  "dependencies": {
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "postcss": "^8.5.27",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@firstbid/executor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thin venue adapter. Owns the DreamDEX SDK. Makes no decisions.",
+  "scripts": {
+    "probe": "tsx src/probe.ts",
+    "keygen": "tsx src/keygen.ts",
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@somnia-chain/markets-sdk": "^0.29.0",
+    "express": "^5.2.1",
+    "viem": "^2.56.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

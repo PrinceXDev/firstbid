@@ -1,0 +1,659 @@
+[
+  {
+    "name": "getSystemConfig",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "address",
+            "name": "marginBank"
+          },
+          {
+            "type": "address",
+            "name": "collateralToken"
+          },
+          {
+            "type": "address",
+            "name": "perpPoolFactory"
+          },
+          {
+            "type": "address",
+            "name": "liquidationEngine"
+          },
+          {
+            "type": "address",
+            "name": "insuranceFund"
+          },
+          {
+            "type": "address",
+            "name": "feeRecipient"
+          },
+          {
+            "type": "uint16",
+            "name": "maxLeverageLimit"
+          },
+          {
+            "type": "bool",
+            "name": "fullyWired"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getPosition",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      },
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "int128",
+            "name": "size"
+          },
+          {
+            "type": "uint128",
+            "name": "avgEntryPrice"
+          },
+          {
+            "type": "int256",
+            "name": "entryFundingIndex"
+          },
+          {
+            "type": "uint64",
+            "name": "lastUpdatedTimestampNs"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getAccountState",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "int256",
+            "name": "unlockedCollateralBalance"
+          },
+          {
+            "type": "uint256",
+            "name": "lockedCollateral"
+          },
+          {
+            "type": "address[]",
+            "name": "activePerpPools"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getAccountEquity",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "int256"
+      }
+    ]
+  },
+  {
+    "name": "getWithdrawableCollateral",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getActivePerpPools",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address[]"
+      }
+    ]
+  },
+  {
+    "name": "getAccountHealth",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "int256",
+        "name": "equity"
+      },
+      {
+        "type": "uint256",
+        "name": "imReq"
+      },
+      {
+        "type": "uint256",
+        "name": "mmReq"
+      },
+      {
+        "type": "uint256",
+        "name": "cmReq"
+      }
+    ]
+  },
+  {
+    "name": "getMarginStatus",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint8"
+      }
+    ]
+  },
+  {
+    "name": "tryGetAccountEquity",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool",
+        "name": "ok"
+      },
+      {
+        "type": "int256",
+        "name": "equity"
+      }
+    ]
+  },
+  {
+    "name": "getCollateralBasis",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getInsuranceFundAddress",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "isInsuranceFundCoverageEnabled",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "getPoolTier",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "quoteMeetsIMForOrder",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      },
+      {
+        "type": "address",
+        "name": "perpPool"
+      },
+      {
+        "type": "uint256",
+        "name": "additionalSize"
+      },
+      {
+        "type": "uint256",
+        "name": "orderPrice"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "meetsIMForFill",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      },
+      {
+        "type": "address",
+        "name": "perpPool"
+      },
+      {
+        "type": "uint256",
+        "name": "additionalSize"
+      },
+      {
+        "type": "uint256",
+        "name": "orderPrice"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "quoteOrderTopUp",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      },
+      {
+        "type": "address",
+        "name": "perpPool"
+      },
+      {
+        "type": "uint256",
+        "name": "lockAmount"
+      },
+      {
+        "type": "uint256",
+        "name": "feeHeadroom"
+      },
+      {
+        "type": "uint256",
+        "name": "increasingQuantity"
+      },
+      {
+        "type": "uint256",
+        "name": "orderPrice"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "topUp"
+      }
+    ]
+  },
+  {
+    "name": "isolationAllowsMarket",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      },
+      {
+        "type": "address",
+        "name": "market"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "isolated",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "getMaxLeverage",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      },
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint16"
+      }
+    ]
+  },
+  {
+    "name": "getMaxLeverageLimit",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint16"
+      }
+    ]
+  },
+  {
+    "name": "getCreditFloor",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getVoucherLeverageCap",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "uint16"
+      }
+    ]
+  },
+  {
+    "name": "isVoucherMarketAllowed",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "isPerpPoolRegistered",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "getSideHoldersPaginated",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      },
+      {
+        "type": "bool",
+        "name": "isLong"
+      },
+      {
+        "type": "uint256",
+        "name": "start"
+      },
+      {
+        "type": "uint256",
+        "name": "count"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address[]",
+        "name": "holders"
+      }
+    ]
+  },
+  {
+    "name": "getBankruptcyPrice",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      },
+      {
+        "type": "address",
+        "name": "perpPool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "price"
+      }
+    ]
+  },
+  {
+    "name": "NoOpenPosition",
+    "type": "error",
+    "inputs": []
+  },
+  {
+    "name": "AdlZeroNotional",
+    "type": "error",
+    "inputs": []
+  },
+  {
+    "name": "getLeverageImSurcharge",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "account"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "quoteFundingPayer",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "child"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address",
+        "name": "payer"
+      }
+    ]
+  },
+  {
+    "name": "quoteWalletCapacity",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "wallet"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getMainFundedPrincipal",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "child"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "getMainFundingPayer",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "child"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "getLinkedWalletRegistry",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  }
+]

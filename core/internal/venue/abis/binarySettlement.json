@@ -1,0 +1,218 @@
+[
+  {
+    "name": "redeem",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "outcomeId"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "collateralOut"
+      }
+    ]
+  },
+  {
+    "name": "finalizeAndRedeem",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      },
+      {
+        "type": "uint256",
+        "name": "outcomeId"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "collateralOut"
+      }
+    ]
+  },
+  {
+    "name": "finalize",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "marketKey"
+      }
+    ]
+  },
+  {
+    "name": "claimOwed",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "token"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ]
+  },
+  {
+    "name": "getSettlement",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "marketKey"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "tuple",
+        "components": [
+          {
+            "type": "address",
+            "name": "collateralToken"
+          },
+          {
+            "type": "uint128",
+            "name": "backing"
+          },
+          {
+            "type": "bool",
+            "name": "finalized"
+          },
+          {
+            "type": "bool",
+            "name": "voided"
+          },
+          {
+            "type": "uint256",
+            "name": "settlementFeeBpsTimes1k"
+          },
+          {
+            "type": "address",
+            "name": "feeRecipient"
+          },
+          {
+            "type": "address",
+            "name": "pool"
+          },
+          {
+            "type": "uint64",
+            "name": "nonce"
+          },
+          {
+            "type": "uint256[]",
+            "name": "payoutNumerators"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "isFinalized",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "outcomeId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "owed",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "user"
+      },
+      {
+        "type": "address",
+        "name": "token"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256"
+      }
+    ]
+  },
+  {
+    "name": "isPoolApproved",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bool"
+      }
+    ]
+  },
+  {
+    "name": "poolRegistrar",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "outcomeToken",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  }
+]

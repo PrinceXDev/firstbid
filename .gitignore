@@ -1,0 +1,16 @@
+# secrets and local state
+.env
+*.db
+*.sqlite
+
+# dependencies and local build caches
+node_modules/
+web/.next/
+web/out/
+firstbid.exe
+*.exe
+
+# NOTE: core/cmd/dashboard/dist is deliberately NOT ignored.
+# It is the Next.js static export that `go:embed all:dist` bakes into the
+# binary. Committing it is what lets a fresh clone run `go run ./cmd/dashboard`
+# with no Node toolchain installed — which is the whole point of the setup.

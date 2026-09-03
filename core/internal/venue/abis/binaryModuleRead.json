@@ -1,0 +1,158 @@
+[
+  {
+    "name": "settlement",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [
+      {
+        "type": "address"
+      }
+    ]
+  },
+  {
+    "name": "poolCreator",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "pool"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address",
+        "name": "creator"
+      }
+    ]
+  },
+  {
+    "name": "getFreePools",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "creator"
+      },
+      {
+        "type": "address",
+        "name": "collateral"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "address[]",
+        "name": "pools"
+      }
+    ]
+  },
+  {
+    "name": "freePoolCount",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "creator"
+      },
+      {
+        "type": "address",
+        "name": "collateral"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "count"
+      }
+    ]
+  },
+  {
+    "name": "marketNonce",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint64",
+        "name": "nonce"
+      }
+    ]
+  },
+  {
+    "name": "markets",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      },
+      {
+        "type": "uint8",
+        "name": "outcomeSlotCount"
+      },
+      {
+        "type": "uint8",
+        "name": "voidPolicy"
+      },
+      {
+        "type": "address",
+        "name": "collateral"
+      },
+      {
+        "type": "uint32",
+        "name": "originOperatorId"
+      },
+      {
+        "type": "bytes32",
+        "name": "originVenueId"
+      },
+      {
+        "type": "address",
+        "name": "oracleAdapter"
+      },
+      {
+        "type": "address",
+        "name": "creator"
+      },
+      {
+        "type": "address",
+        "name": "market"
+      },
+      {
+        "type": "address",
+        "name": "pool"
+      },
+      {
+        "type": "uint256",
+        "name": "yesId"
+      },
+      {
+        "type": "uint256",
+        "name": "noId"
+      },
+      {
+        "type": "uint64",
+        "name": "tradingStart"
+      },
+      {
+        "type": "uint64",
+        "name": "expiry"
+      }
+    ]
+  }
+]

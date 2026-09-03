@@ -1,0 +1,365 @@
+[
+  {
+    "name": "QuestionScheduled",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId",
+        "indexed": true
+      },
+      {
+        "type": "bytes32",
+        "name": "questionKey",
+        "indexed": true
+      },
+      {
+        "type": "address",
+        "name": "scheduler",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "oracleCost"
+      }
+    ]
+  },
+  {
+    "name": "QuestionReused",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId",
+        "indexed": true
+      },
+      {
+        "type": "bytes32",
+        "name": "questionKey",
+        "indexed": true
+      },
+      {
+        "type": "address",
+        "name": "scheduler",
+        "indexed": true
+      }
+    ]
+  },
+  {
+    "name": "QuestionCapSplit",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "questionKey",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "supersededQuestionId",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "newQuestionId",
+        "indexed": true
+      }
+    ]
+  },
+  {
+    "name": "ReserveEarmarked",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId",
+        "indexed": true
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ]
+  },
+  {
+    "name": "SurplusCredited",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId",
+        "indexed": true
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ]
+  },
+  {
+    "name": "CreditWithdrawn",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId",
+        "indexed": true
+      },
+      {
+        "type": "address",
+        "name": "to",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ]
+  },
+  {
+    "name": "PayerSurplusCredited",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "payer",
+        "indexed": true
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ]
+  },
+  {
+    "name": "PayerCreditWithdrawn",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "payer",
+        "indexed": true
+      },
+      {
+        "type": "address",
+        "name": "to",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ]
+  },
+  {
+    "name": "MarketBound",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId",
+        "indexed": true
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId",
+        "indexed": true
+      },
+      {
+        "type": "uint32",
+        "name": "operatorId",
+        "indexed": true
+      },
+      {
+        "type": "uint32",
+        "name": "bindCount"
+      }
+    ]
+  },
+  {
+    "name": "MarketResolveCharged",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId",
+        "indexed": true
+      },
+      {
+        "type": "uint32",
+        "name": "operatorId",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "measuredGas"
+      },
+      {
+        "type": "uint256",
+        "name": "overheadShare"
+      },
+      {
+        "type": "uint256",
+        "name": "cost"
+      },
+      {
+        "type": "uint256",
+        "name": "charged"
+      }
+    ]
+  },
+  {
+    "name": "AnswerDelivered",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId",
+        "indexed": true
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId",
+        "indexed": true
+      },
+      {
+        "type": "uint32",
+        "name": "payoutDenominator"
+      },
+      {
+        "type": "uint256[]",
+        "name": "payoutNumerators"
+      },
+      {
+        "type": "bool",
+        "name": "voided"
+      }
+    ]
+  },
+  {
+    "name": "CallbackAccounted",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "marketsResolved"
+      },
+      {
+        "type": "uint256",
+        "name": "gasPrice"
+      },
+      {
+        "type": "uint256",
+        "name": "measuredGas"
+      },
+      {
+        "type": "uint256",
+        "name": "overheadGasAttributed"
+      },
+      {
+        "type": "uint256",
+        "name": "totalCost"
+      },
+      {
+        "type": "uint256",
+        "name": "totalCharged"
+      },
+      {
+        "type": "uint256",
+        "name": "subsidy"
+      },
+      {
+        "type": "uint256",
+        "name": "pendingRemaining"
+      }
+    ]
+  },
+  {
+    "name": "DrainContinuation",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "subscriptionId"
+      },
+      {
+        "type": "uint256",
+        "name": "pendingRemaining"
+      }
+    ]
+  },
+  {
+    "name": "Deposited",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "from",
+        "indexed": true
+      },
+      {
+        "type": "uint256",
+        "name": "amount",
+        "indexed": true
+      }
+    ]
+  },
+  {
+    "name": "GasParamsUpdated",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint64",
+        "name": "priorityFeePerGas",
+        "indexed": true
+      },
+      {
+        "type": "uint64",
+        "name": "maxFeePerGas",
+        "indexed": true
+      },
+      {
+        "type": "uint64",
+        "name": "gasLimit",
+        "indexed": true
+      }
+    ]
+  },
+  {
+    "name": "DrainParamsUpdated",
+    "type": "event",
+    "inputs": [
+      {
+        "type": "uint64",
+        "name": "perMarketResolveGas"
+      },
+      {
+        "type": "uint64",
+        "name": "callbackBaseGas"
+      },
+      {
+        "type": "uint32",
+        "name": "maxResolvesPerCallback"
+      },
+      {
+        "type": "uint64",
+        "name": "resolveGasReserve"
+      }
+    ]
+  }
+]

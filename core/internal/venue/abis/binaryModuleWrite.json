@@ -1,0 +1,198 @@
+[
+  {
+    "name": "redeem",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      },
+      {
+        "type": "bytes32",
+        "name": "venueId"
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      },
+      {
+        "type": "uint8",
+        "name": "outcomeIdx"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "redeemMany",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      },
+      {
+        "type": "bytes32",
+        "name": "venueId"
+      },
+      {
+        "type": "bytes32[]",
+        "name": "marketIds"
+      },
+      {
+        "type": "uint8[]",
+        "name": "outcomeIdxs"
+      },
+      {
+        "type": "uint256[]",
+        "name": "amounts"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "redeemFor",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "address",
+        "name": "owner"
+      },
+      {
+        "type": "uint256",
+        "name": "nonce"
+      },
+      {
+        "type": "uint256",
+        "name": "deadline"
+      },
+      {
+        "type": "bytes",
+        "name": "sig"
+      },
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      },
+      {
+        "type": "bytes32",
+        "name": "venueId"
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      },
+      {
+        "type": "uint8",
+        "name": "outcomeIdx"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "mintCompleteSet",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      },
+      {
+        "type": "bytes32",
+        "name": "venueId"
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "mergeCompleteSet",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint32",
+        "name": "operatorId"
+      },
+      {
+        "type": "bytes32",
+        "name": "venueId"
+      },
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      },
+      {
+        "type": "uint256",
+        "name": "amount"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "finalizeMarket",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "releasePool",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "syncSettlement",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "marketId"
+      }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "pokeOracle",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "uint256",
+        "name": "oracleQuestionId"
+      }
+    ],
+    "outputs": []
+  }
+]

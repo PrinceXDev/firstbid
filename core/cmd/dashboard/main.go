@@ -14,6 +14,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -75,12 +76,45 @@ func main() {
 	s := &server{c: c, feedURL: feed, ledger: db, calibFile: *calib}
 
 	http.Handle("/", uiHandler())
-	http.HandleFunc("/api/calibration", s.calibration)
-	http.HandleFunc("/api/live", s.live)
-	http.HandleFunc("/api/pnl", s.pnl)
+	http.Handle("/api/calibration", devCORS(http.HandlerFunc(s.calibration)))
+	http.Handle("/api/live", devCORS(http.HandlerFunc(s.live)))
+	http.Handle("/api/pnl", devCORS(http.HandlerFunc(s.pnl)))
 
 	log.Printf("firstbid dashboard on http://localhost%s  (net=%s)", *addr, *net_)
 	log.Fatal(http.ListenAndServe(*addr, nil))
+}
+
+// devCORS lets `next dev` on another port read the API.
+//
+// In production the Go binary serves the UI and the API from one origin, so no
+// CORS is involved at all. This exists only for the documented development
+// setup, and it is deliberately restricted to loopback origins: a wildcard here
+// would turn a local read API into one any web page could query.
+func devCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); isLoopbackOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isLoopbackOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

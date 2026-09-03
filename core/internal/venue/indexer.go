@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -86,4 +87,52 @@ func (c *Client) DiscoverLive(ctx context.Context) ([]IndexerMarket, error) {
 		return nil, err
 	}
 	return out.Market, nil
+}
+
+// ---- our own fills, from the indexer ------------------------------------
+
+// UserFill is one execution against our address, as the indexer recorded it.
+//
+// The submission receipt only shows fills that happened in that same
+// transaction. A post-only order that rests and is filled later by a
+// counterparty's transaction produces no log we ever see, so a maker that
+// records only its own receipts under-reports exactly the fills it exists to
+// generate. This is the query that closes that gap.
+type UserFill struct {
+	ID         string `json:"id"`
+	TxHash     string `json:"txHash"`
+	MarketID   string `json:"market_id"`
+	Maker      string `json:"maker"`
+	Taker      string `json:"taker"`
+	FillPrice  string `json:"fillPrice"`
+	Quantity   string `json:"quantity"`
+	Timestamp  string `json:"timestamp"`
+	TakerIsBid bool   `json:"takerIsBid"`
+	Market     struct {
+		QuoteDecimals int `json:"quoteDecimals"`
+	} `json:"market"`
+}
+
+const userFillsQuery = `query Fills($who: String!, $since: numeric!) {
+  Fill(
+    where: { timestamp: {_gte: $since},
+             _or: [{maker: {_eq: $who}}, {taker: {_eq: $who}}] }
+    order_by: { timestamp: desc }
+    limit: 500
+  ) {
+    id txHash market_id maker taker fillPrice quantity timestamp takerIsBid
+    market { quoteDecimals }
+  }
+}`
+
+// UserFills returns every fill involving `account` since `since` (unix seconds).
+func (c *Client) UserFills(ctx context.Context, account string, since int64) ([]UserFill, error) {
+	var out struct {
+		Fill []UserFill `json:"Fill"`
+	}
+	vars := map[string]any{"who": strings.ToLower(account), "since": since}
+	if err := c.gqlPost(ctx, userFillsQuery, vars, &out); err != nil {
+		return nil, err
+	}
+	return out.Fill, nil
 }

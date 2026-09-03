@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE TABLE IF NOT EXISTS fills (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Stable identity for one on-chain fill. Reconciliation rescans overlapping
+  -- windows and restarts replay history, so without this a fill would be
+  -- counted several times and the P&L would drift upward on every sweep.
+  fill_key    TEXT NOT NULL UNIQUE,
   tx_hash     TEXT NOT NULL,
   market_id   TEXT NOT NULL,
   kind        TEXT NOT NULL,
@@ -107,6 +111,10 @@ func (d *DB) RecordOrder(ctx context.Context, o OrderRow) error {
 }
 
 type FillRow struct {
+	// Key uniquely identifies this fill on chain. Reconciliation supplies the
+	// indexer's row id; receipt-decoded fills synthesise one from the
+	// transaction hash and the fill's position within it.
+	Key      string
 	TxHash   string
 	MarketID string
 	Kind     string
@@ -115,12 +123,33 @@ type FillRow struct {
 	Fair     float64
 }
 
+// RecordFill is idempotent: re-recording a fill we already have is a no-op.
 func (d *DB) RecordFill(ctx context.Context, f FillRow) error {
+	if f.Key == "" {
+		return fmt.Errorf("fill has no key; refusing to record an un-deduplicable row")
+	}
 	_, err := d.sql.ExecContext(ctx, `
-		INSERT INTO fills (tx_hash, market_id, kind, price, quantity, fair, created_at)
-		VALUES (?,?,?,?,?,?,?)`,
-		f.TxHash, f.MarketID, f.Kind, f.Price, f.Quantity, f.Fair, time.Now().Unix())
+		INSERT OR IGNORE INTO fills
+		(fill_key, tx_hash, market_id, kind, price, quantity, fair, created_at)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		f.Key, f.TxHash, f.MarketID, f.Kind, f.Price, f.Quantity, f.Fair, time.Now().Unix())
 	return err
+}
+
+// HasFill reports whether a fill is already recorded, so a reconciler can skip
+// the work of pricing one it has seen.
+func (d *DB) HasFill(ctx context.Context, key string) (bool, error) {
+	var n int
+	err := d.sql.QueryRowContext(ctx, `SELECT count(*) FROM fills WHERE fill_key = ?`, key).Scan(&n)
+	return n > 0, err
+}
+
+// KnownMarket reports whether we have ever traded this market, so reconciliation
+// can ignore fills belonging to somebody else's strategy on the same wallet.
+func (d *DB) KnownMarket(ctx context.Context, marketID string) (bool, error) {
+	var n int
+	err := d.sql.QueryRowContext(ctx, `SELECT count(*) FROM windows WHERE market_id = ?`, marketID).Scan(&n)
+	return n > 0, err
 }
 
 type WindowRow struct {

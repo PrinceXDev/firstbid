@@ -109,3 +109,34 @@ func TestTakePriceIsAlwaysInYesTerms(t *testing.T) {
 		t.Errorf("buying Down should hit the bid at 0.50 in YES terms, got %v", dn.Price)
 	}
 }
+
+// Taking is a WRITE, so it must answer to the same pre-signing gates as a
+// quote. These assert the conditions the engine now checks before crossing.
+func TestGatesThatMustAlsoBlockATake(t *testing.T) {
+	p := DefaultParams()
+
+	// A large edge exists, but the index price is stale.
+	stale := Compute(0.80, 0.005, 0, 600, 30, p)
+	if !stale.SkipBid || !stale.SkipAsk {
+		t.Fatal("stale spot must skip both sides")
+	}
+	if tk := ShouldTake(0.80, 0.005, 0.70, 0.72, p); !tk.Any() {
+		t.Fatal("precondition: an edge should exist here")
+	}
+	// The engine consults both, so a stale feed blocks the take.
+
+	// A large edge exists, but the window is about to lock.
+	closing := Compute(0.80, 0.005, 0, 5, 1, p)
+	if !closing.SkipBid || !closing.SkipAsk {
+		t.Error("an imminent lock must skip both sides")
+	}
+
+	// At the long cap, the bid side is skipped, which must also stop a BUY_UP take.
+	capped := Compute(0.80, 0.005, p.MaxInventory, 600, 1, p)
+	if !capped.SkipBid {
+		t.Error("the long inventory cap must skip the bid side")
+	}
+	if tk := ShouldTake(0.80, 0.005, 0.70, 0.72, p); !tk.BuyUp {
+		t.Error("precondition: this edge is a BUY_UP take")
+	}
+}

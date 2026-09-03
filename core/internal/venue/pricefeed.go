@@ -167,7 +167,16 @@ func (c *Client) CandlesM1(ctx context.Context, feedURL, base string, from int64
 	return all, nil
 }
 
-// SpotAt indexes candles by minute for O(1) historical lookups.
+// SpotSeries indexes index-price candles by minute for O(1) historical lookups.
+//
+// It stores each bucket's OPEN, not its close. A bucket keyed by its start
+// timestamp but holding its close would hand a caller the price from the END of
+// that minute — up to 59 seconds of future movement. At BTC's fitted volatility
+// that is roughly 1 sigma, which at five minutes to expiry removes nearly half
+// the remaining uncertainty and inflates any backtest built on it.
+//
+// The open is the price at the start of the minute containing t, so it is
+// strictly known by time t. Nothing here may return information from the future.
 type SpotSeries map[int64]float64
 
 func BuildSpotSeries(cs []FeedCandle) SpotSeries {
@@ -177,7 +186,7 @@ func BuildSpotSeries(cs []FeedCandle) SpotSeries {
 		if err != nil {
 			continue
 		}
-		v, ok := c.Close.Float()
+		v, ok := c.Open.Float()
 		if !ok {
 			continue
 		}
@@ -186,7 +195,8 @@ func BuildSpotSeries(cs []FeedCandle) SpotSeries {
 	return s
 }
 
-// At returns the index price at time t, tolerating small gaps in the feed.
+// At returns the index price knowable at time t, tolerating small gaps in the
+// feed by walking backwards only. It never looks forward.
 func (s SpotSeries) At(t int64) (float64, bool) {
 	m := t / 60
 	for back := int64(0); back <= 5; back++ {

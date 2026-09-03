@@ -89,11 +89,12 @@ showing ~0.024.
 > We replayed every resolved window using only what was knowable at the time.
 > The model's one free parameter was fitted on the **older half** of the data,
 > then scored on the **newer half it had never seen** — seven thousand
-> predictions.
+> predictions — with no lookahead: every sample sees only the price knowable
+> at that instant.
 >
-> When it says thirty-five percent, it happens thirty-three percent of the time.
-> When it says seventy-five, it happens seventy-seven. Brier score of point one
-> zero against point two five for a coin flip — **fifty-nine percent better,
+> When it says thirty-five percent, it happens thirty-four percent of the time.
+> When it says seventy-five, it happens seventy-three. Brier score of point one
+> four against point two five for a coin flip — **forty-four percent better,
 > out of sample.**
 >
 > And at the moment a window opens, the formula returns exactly zero point five
@@ -183,7 +184,7 @@ try to get it live. It fires several times an hour.*
 
 - **Do not rush the reliability curve.** It is the most credible thing in the
   video and most submissions will have nothing like it. Give it its five seconds.
-- **Say the numbers slowly.** 0.4978, 59%, 7,053. They land only if they're clear.
+- **Say the numbers slowly.** 0.4978, 44%, 7,696. They land only if they're clear.
 - Say "**out of sample**" at least twice. A judge who knows statistics is
   listening for exactly that, and its absence is the first thing they'd attack.
 - If the P&L panel is still small or slightly negative, **show it anyway and say

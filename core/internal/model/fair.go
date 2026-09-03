@@ -26,11 +26,17 @@ type Vol struct {
 // that actually matters for settlement, because the settlement reference and the
 // index feed are different series. The multiplier corrects that scale error.
 //
-// Fitted on the OLDER half of 14,171 replayed predictions (k=0.530) and validated
-// on the newer half it never saw: Brier 0.1012 vs 0.2500 baseline, +59.5% skill,
-// reliability within +/-0.06 in every decile. k on the full set was 0.535, so the
-// parameter is stable across time rather than tuned to one period.
-const Calibration = 0.530
+// Fitted on the OLDER half of 15,386 replayed predictions and validated on the
+// newer half it never saw: Brier 0.1395 vs 0.2500 baseline, +44.2% skill,
+// reliability within +/-0.05 in every decile.
+//
+// An earlier value of 0.530 was measured against a backtest that leaked future
+// prices: the spot series was keyed by each minute's start but held that
+// minute's CLOSE, so every sample saw up to 59 seconds ahead. Removing the leak
+// raised the fitted multiplier substantially, which is to say the model had been
+// systematically OVERCONFIDENT — pushing probabilities too near 0 and 1, and
+// therefore seeing mispricing that was not there.
+const Calibration = 0.636
 
 // fitted holds per-minute volatility measured per (asset, cadence) by
 // cmd/calibrate against resolved mainnet windows.

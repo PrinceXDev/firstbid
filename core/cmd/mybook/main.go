@@ -7,8 +7,10 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/joho/godotenv"
 
@@ -25,8 +27,10 @@ func main() {
 	}
 	defer c.Close()
 
-	key, _ := crypto.HexToECDSA(os.Getenv("FIRSTBID_PRIVATE_KEY")[2:])
-	me := crypto.PubkeyToAddress(key.PublicKey)
+	me, err := signerAddress(os.Getenv("FIRSTBID_PRIVATE_KEY"))
+	if err != nil {
+		log.Fatalf("FIRSTBID_PRIVATE_KEY: %v (set it in executor/.env)", err)
+	}
 	fmt.Printf("us: %s\n", me.Hex())
 
 	live, _ := c.DiscoverLive(ctx)
@@ -70,6 +74,21 @@ func main() {
 	if shown == 0 {
 		fmt.Println("\nno markets currently carry our orders (they expire on their own)")
 	}
+}
+
+// signerAddress derives our address from a hex key, accepting it with or
+// without the 0x prefix. A diagnostic tool must report a configuration problem,
+// not panic on an empty string.
+func signerAddress(hexKey string) (common.Address, error) {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(hexKey, "0x"))
+	if trimmed == "" {
+		return common.Address{}, fmt.Errorf("not set")
+	}
+	key, err := crypto.HexToECDSA(trimmed)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("malformed: %w", err)
+	}
+	return crypto.PubkeyToAddress(key.PublicKey), nil
 }
 
 func f(v *big.Int, dec int) float64 {

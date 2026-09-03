@@ -1,8 +1,47 @@
 import express from "express";
+import { timingSafeEqual } from "node:crypto";
 import { exchange, client, hasSigner, serialise, jsonSafe } from "./venue.js";
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "64kb" }));
+
+/**
+ * This process holds a signing key, so every route below can spend funds.
+ *
+ * Two protections, because either alone is insufficient:
+ *   1. It binds to loopback only, so it is not reachable off the machine.
+ *   2. Signer-backed routes require a shared secret, so another local process
+ *      or a browser page cannot drive the wallet either.
+ *
+ * NOTE: this server is a reference implementation kept for cross-checking the
+ * Go engine's behaviour. It is not part of the running system and should not be
+ * deployed. The Go engine in ../core is the real executor.
+ */
+const TOKEN = process.env.FIRSTBID_EXECUTOR_TOKEN ?? "";
+
+function requireToken(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
+  if (!TOKEN) {
+    res.status(503).json({
+      ok: false,
+      error:
+        "FIRSTBID_EXECUTOR_TOKEN is not set; signer-backed routes are disabled",
+    });
+    return;
+  }
+  const given = req.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  // Length-independent compare: a plain !== leaks length through timing.
+  const a = Buffer.from(given);
+  const b = Buffer.from(TOKEN);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    res.status(401).json({ ok: false, error: "unauthorized" });
+    return;
+  }
+  next();
+}
 
 const wrap =
   (fn: (req: express.Request, res: express.Response) => Promise<unknown>) =>
@@ -69,6 +108,7 @@ app.get(
 /** Place one order. Go sends human units; the SDK snaps to the venue grid (>=0.28). */
 app.post(
   "/orders",
+  requireToken,
   wrap(async (req) => {
     const { symbol, side, size, price, postOnly, ioc } = req.body as {
       symbol: string; side: "buy" | "sell"; size: number; price: number;
@@ -86,6 +126,7 @@ app.post(
 
 app.delete(
   "/orders/:id",
+  requireToken,
   wrap(async (req) =>
     serialise(() => exchange.cancelOrder(req.params.id, String(req.query.symbol))),
   ),
@@ -113,6 +154,7 @@ app.get(
 
 app.post(
   "/faucet",
+  requireToken,
   wrap(async () => serialise(() => exchange.trader.faucet())),
 );
 
@@ -126,6 +168,8 @@ app.get(
 );
 
 const port = Number(process.env.FIRSTBID_PORT ?? 8787);
-app.listen(port, () => {
+// Loopback only. Omitting the host binds every interface, which would expose a
+// key-holding service to the network.
+app.listen(port, "127.0.0.1", () => {
   console.log(`[executor] venue adapter on :${port}  signer=${exchange.walletAddress ?? "none"}`);
 });

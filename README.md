@@ -84,21 +84,28 @@ each moment, fits the one free parameter on the **older half**, and scores the
 **newer half it has never seen**.
 
 ```
-train/test split: 7,033 train (older) / 7,033 test (newer)
+train/test split: 7,695 train (older) / 7,696 test (newer)
 
 OUT-OF-SAMPLE RELIABILITY
-bucket        n   predicted  realised    err
-0.1-0.2     490     0.147     0.137    -0.010
-0.2-0.3     393     0.247     0.232    -0.015
-0.3-0.4     364     0.347     0.332    -0.015
-0.5-0.6     358     0.549     0.561    +0.013
-0.7-0.8     368     0.751     0.777    +0.027
-0.9-1.0    1795     0.982     0.977    -0.006
+bucket        n   predicted  realised
+0.1-0.2     587     0.150     0.162
+0.3-0.4     583     0.350     0.338
+0.5-0.6     629     0.548     0.568
+0.7-0.8     503     0.749     0.732
+0.9-1.0    1434     0.978     0.960
 
-Brier (model)      : 0.1012
+Brier (model)      : 0.1392
 Brier (always 0.5) : 0.2500
-skill score        : +59.50%
+skill score        : +44.31%
 ```
+
+An earlier revision of this README reported +59.5%. That number came from a
+backtest with lookahead: the spot series was keyed by each minute's start but
+held that minute's **close**, so every sample saw up to 59 seconds of future
+price. At BTC's fitted volatility that is roughly 1σ, which removes a large
+share of the remaining uncertainty near expiry. The leak was found in code
+review, fixed, and every figure regenerated. The model is genuinely weaker than
+first claimed and still substantially better than a coin flip.
 
 When the model says 75%, it happens 78% of the time — on data it never saw. And
 at the opening tick, where spot equals open, the formula returns exactly 0.500

@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"path/filepath"
 	"testing"
@@ -124,10 +125,53 @@ func TestUnsettledWindowsAreExcluded(t *testing.T) {
 	}
 }
 
+var fillSeq int
+
 func mustFill(t *testing.T, d *DB, f FillRow) {
 	t.Helper()
+	if f.Key == "" {
+		fillSeq++
+		f.Key = fmt.Sprintf("test:%d", fillSeq)
+	}
 	if err := d.RecordFill(context.Background(), f); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Reconciliation rescans overlapping windows, so the same on-chain fill is
+// offered repeatedly. It must be counted exactly once or P&L drifts upward on
+// every sweep.
+func TestRecordingTheSameFillTwiceCountsItOnce(t *testing.T) {
+	d := open(t)
+	ctx := context.Background()
+	_ = d.UpsertWindow(ctx, WindowRow{MarketID: "dup", Label: "BTC/5m", Asset: "BTC", IntervalSec: 300, Expiry: 1})
+	row := FillRow{Key: "idx:42", MarketID: "dup", Kind: "BUY_UP", Price: 0.4, Quantity: 3, Fair: 0.5}
+	for i := 0; i < 4; i++ {
+		if err := d.RecordFill(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = d.Settle(ctx, "dup", 0, false, 1, 2)
+
+	as, _ := d.Attribute(ctx)
+	if len(as) != 1 {
+		t.Fatalf("want 1 window, got %d", len(as))
+	}
+	if as[0].Fills != 1 {
+		t.Errorf("fills = %d, want 1 after four identical records", as[0].Fills)
+	}
+	if math.Abs(as[0].Contracts-3) > 1e-9 {
+		t.Errorf("contracts = %v, want 3", as[0].Contracts)
+	}
+}
+
+// A fill with no key cannot be deduplicated, so it must be refused outright
+// rather than silently double-counted later.
+func TestUnkeyedFillIsRefused(t *testing.T) {
+	d := open(t)
+	err := d.RecordFill(context.Background(), FillRow{MarketID: "x", Kind: "BUY_UP", Price: 0.5, Quantity: 1})
+	if err == nil {
+		t.Error("expected an error for a fill with no key")
 	}
 }
 

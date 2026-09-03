@@ -35,7 +35,11 @@ type Engine struct {
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc // marketId -> cancel
-	stats   Stats
+	// Net Up contracts held per market, accumulated from decoded fills. Quote
+	// skew and the exposure caps are meaningless without it: a loop that always
+	// reports flat will happily build a large one-sided position.
+	inv   map[string]float64
+	stats Stats
 }
 
 type Stats struct {
@@ -65,6 +69,7 @@ type Intent struct {
 	HumanQty float64
 	ExpireNs uint64
 	OrderTyp venue.OrderType
+	Dec      int // collateral decimals, for converting decoded fills
 	// Decision context, recorded so P&L can be explained rather than just counted.
 	Mode     string
 	Fair     float64
@@ -78,6 +83,7 @@ func New(c *venue.Client, tr *venue.Trader, p Params, feedURL string, lg *log.Lo
 		C: c, Trader: tr, Params: p, FeedURL: feedURL, Log: lg,
 		intents: make(chan Intent, 256),
 		running: map[string]context.CancelFunc{},
+		inv:     map[string]float64{},
 	}
 }
 
@@ -86,10 +92,11 @@ func (e *Engine) DryRun() bool { return e.Trader == nil }
 // Run starts the price poller, the executor and the discovery supervisor.
 func (e *Engine) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() { defer wg.Done(); e.pollSpots(ctx) }()
 	go func() { defer wg.Done(); e.execute(ctx) }()
 	go func() { defer wg.Done(); e.supervise(ctx) }()
+	go func() { defer wg.Done(); e.reconcile(ctx) }()
 	wg.Wait()
 	e.Log.Printf("engine stopped | %+v", e.Snapshot())
 	return ctx.Err()
@@ -217,6 +224,9 @@ func (e *Engine) reap(marketID string) {
 		c()
 		delete(e.running, marketID)
 	}
+	// Quote-time exposure state dies with the window; realised accounting lives
+	// in the ledger. Keeping it here would leak a map entry per window forever.
+	delete(e.inv, marketID)
 	e.mu.Unlock()
 	e.bump(func(s *Stats) { s.Reaped++ })
 }
@@ -258,8 +268,6 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 	t := time.NewTicker(interval)
 	defer t.Stop()
 
-	var inventory float64 // contracts of Up held; negative means net Down
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -277,6 +285,11 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 		open := venue.NormaliseTo(openRaw, sp.Price)
 		secsLeft := float64(int64(m.Expiry) - time.Now().Unix())
 		if secsLeft <= 0 {
+			// Both this branch and ctx.Done() are the same lifecycle boundary,
+			// and Go may pick either when the ticker and the deadline are both
+			// ready. Settlement must be scheduled from whichever one wins, or
+			// the window is silently excluded from realised attribution.
+			go e.settle(context.WithoutCancel(ctx), im, m, label)
 			return
 		}
 
@@ -284,12 +297,37 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 		// The risk horizon is how long we are exposed before we can requote,
 		// not the whole window: one tick plus a round trip.
 		unc := model.Uncertainty(sp.Price, open, sigma, secsLeft, interval.Seconds()+3)
-		q := Compute(fair, unc, inventory, secsLeft, sp.Age.Seconds(), e.Params)
+		inv := e.inventory(im.MarketID)
+		q := Compute(fair, unc, inv, secsLeft, sp.Age.Seconds(), e.Params)
 
 		// Before resting anything, check whether the live book is simply wrong.
 		// Crossing a stale quote is worth more than sitting behind it.
 		bestBid, bestAsk := e.touch(ctx, m.Pool, im.QuoteDec)
-		if tk := ShouldTake(fair, unc, bestBid, bestAsk, e.Params); tk.Any() && secsLeft > e.Params.MinSecondsLeft {
+		tk := ShouldTake(fair, unc, bestBid, bestAsk, e.Params)
+
+		// Taking is a WRITE, so it answers to the same pre-signing gates as a
+		// quote. Compute already evaluated stale data, imminent lock, certainty
+		// bounds and inventory caps; a take that ignores them would route round
+		// every safety check the maker path respects.
+		if tk.Any() {
+			blocked := ""
+			switch {
+			case q.SkipBid && q.SkipAsk:
+				blocked = q.Reason
+			case tk.BuyUp && q.SkipBid:
+				blocked = "at the long inventory cap"
+			case tk.BuyDn && q.SkipAsk:
+				blocked = "at the short inventory cap"
+			}
+			if blocked != "" {
+				e.bump(func(s *Stats) { s.Skips++ })
+				e.Log.Printf("[%s] t-%3.0fs edge %.3f available but NOT taking (%s)",
+					label, secsLeft, tk.Edge, blocked)
+				continue
+			}
+		}
+
+		if tk.Any() {
 			kind := venue.BuyYes
 			if tk.BuyDn {
 				kind = venue.BuyNo
@@ -324,7 +362,7 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 		}
 		e.bump(func(s *Stats) { s.Quotes++ })
 		e.Log.Printf("[%s] t-%3.0fs spot=%.2f open=%.2f fair=%.3f unc=%.3f -> quote %.3f/%.3f (%.3f wide, inv %.1f)",
-			label, secsLeft, sp.Price, open, fair, unc, q.BidUp, q.AskUp, q.Wide(), inventory)
+			label, secsLeft, sp.Price, open, fair, unc, q.BidUp, q.AskUp, q.Wide(), inv)
 
 		// Two opposite-side BUYS are a complete two-sided quote needing ZERO
 		// inventory, because the pool mints the pair when they cross
@@ -362,6 +400,7 @@ func (e *Engine) emitTyped(ctx context.Context, im venue.IndexerMarket, m *venue
 		Kind: kind, Price: price, Qty: qty, HumanPx: px, HumanQty: e.Params.Size,
 		ExpireNs: expireNs, OrderTyp: ot,
 		Mode: dc.mode, Fair: dc.fair, Spot: dc.spot, OpenPx: dc.open, SecsLeft: dc.secsLeft,
+		Dec: im.QuoteDec,
 	}:
 	case <-ctx.Done():
 		return nil
@@ -543,33 +582,80 @@ type decision struct {
 }
 
 func (e *Engine) record(ctx context.Context, in Intent, res *venue.PlaceResult) {
-	if e.Ledger == nil || res == nil {
+	if res == nil {
 		return
 	}
 	kind := kindName(in.Kind)
 
 	// Orders are priced in YES terms on the wire, but the ledger needs what we
 	// actually PAID. A BUY_DN at YES price p costs 1-p for a Down contract.
-	// Storing the wire price here would inflate reported edge enormously.
-	cost := in.HumanPx
-	if in.Kind == venue.BuyNo || in.Kind == venue.SellNo {
-		cost = 1 - in.HumanPx
+	toCost := func(yesPrice float64) float64 {
+		if in.Kind == venue.BuyNo || in.Kind == venue.SellNo {
+			return 1 - yesPrice
+		}
+		return yesPrice
 	}
-	_ = e.Ledger.RecordOrder(ctx, ledger.OrderRow{
-		TxHash: res.TxHash.Hex(), MarketID: in.MarketID, Label: in.Label,
-		Kind: kind, Mode: in.Mode, Price: cost, Quantity: in.HumanQty,
-		Fair: in.Fair, Spot: in.Spot, OpenPx: in.OpenPx, SecsLeft: in.SecsLeft,
-		Rested: res.Rested, Fills: len(res.Fills),
-	})
-	for range res.Fills {
-		// A fill's economics are the price we committed to and the size we asked
-		// for; the receipt's raw units are pool-scaled, so the human figures the
-		// decision was made on are the honest record.
-		_ = e.Ledger.RecordFill(ctx, ledger.FillRow{
-			TxHash: res.TxHash.Hex(), MarketID: in.MarketID, Kind: kind,
-			Price: cost, Quantity: in.HumanQty, Fair: in.Fair,
+
+	if e.Ledger != nil {
+		_ = e.Ledger.RecordOrder(ctx, ledger.OrderRow{
+			TxHash: res.TxHash.Hex(), MarketID: in.MarketID, Label: in.Label,
+			Kind: kind, Mode: in.Mode, Price: toCost(in.HumanPx), Quantity: in.HumanQty,
+			Fair: in.Fair, Spot: in.Spot, OpenPx: in.OpenPx, SecsLeft: in.SecsLeft,
+			Rested: res.Rested, Fills: len(res.Fills),
 		})
 	}
+
+	// Each OrderFilled event carries the quantity and price that actually
+	// executed. Recording the requested size and the submitted limit instead
+	// would multiply partial fills by the full order size and discard any price
+	// improvement or slippage — the ledger would describe what we asked for
+	// rather than what happened.
+	for i, f := range res.Fills {
+		qty := rawToHuman(f.Quantity, in.Dec)
+		px := rawToHuman(f.Price, in.Dec)
+		if qty <= 0 {
+			continue
+		}
+		if px <= 0 {
+			px = in.HumanPx // no price in the log; the limit is the best we know
+		}
+		signed := qty
+		if in.Kind == venue.BuyNo || in.Kind == venue.SellNo {
+			signed = -qty
+		}
+		e.addInventory(in.MarketID, signed)
+
+		if e.Ledger != nil {
+			_ = e.Ledger.RecordFill(ctx, ledger.FillRow{
+				Key:    fmt.Sprintf("rcpt:%s:%d", res.TxHash.Hex(), i),
+				TxHash: res.TxHash.Hex(), MarketID: in.MarketID, Kind: kind,
+				Price: toCost(px), Quantity: qty, Fair: in.Fair,
+			})
+		}
+	}
+}
+
+// inventory is our net Up exposure on one market, in contracts.
+func (e *Engine) inventory(marketID string) float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.inv[marketID]
+}
+
+func (e *Engine) addInventory(marketID string, delta float64) {
+	e.mu.Lock()
+	e.inv[marketID] += delta
+	e.mu.Unlock()
+}
+
+// rawToHuman converts a pool-scaled integer to collateral units.
+func rawToHuman(v *big.Int, dec int) float64 {
+	if v == nil || dec < 0 {
+		return 0
+	}
+	den := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(dec)), nil))
+	f, _ := new(big.Float).Quo(new(big.Float).SetInt(v), den).Float64()
+	return f
 }
 
 // settle waits for the oracle to resolve a window and records the outcome, so
@@ -614,4 +700,99 @@ func (e *Engine) settle(ctx context.Context, im venue.IndexerMarket, m *venue.Ma
 		e.Log.Printf("[%s] SETTLED winner=%d voided=%v", label, winner, st.IsVoided)
 		return
 	}
+}
+
+// reconcile ingests fills that never appeared in one of our own receipts.
+//
+// A post-only order rests, and a counterparty fills it in THEIR transaction.
+// We get no receipt and no log — yet that is the maker path working as
+// designed, so a ledger fed only by submission receipts systematically omits
+// the fills the strategy exists to produce.
+//
+// Each sweep re-reads an overlapping window and relies on the ledger's unique
+// fill key for idempotency, so restarts and repeated scans cannot double-count.
+func (e *Engine) reconcile(ctx context.Context) {
+	if e.Ledger == nil || e.DryRun() {
+		return
+	}
+	me := strings.ToLower(e.Trader.From().Hex())
+	t := time.NewTicker(45 * time.Second)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+
+		// Overlap generously: cheap, and the dedupe key makes it safe.
+		since := time.Now().Add(-30 * time.Minute).Unix()
+		fills, err := e.C.UserFills(ctx, me, since)
+		if err != nil {
+			e.Log.Printf("reconcile: %v", err)
+			continue
+		}
+
+		var added int
+		for _, f := range fills {
+			key := "idx:" + f.ID
+			if seen, err := e.Ledger.HasFill(ctx, key); err != nil || seen {
+				continue
+			}
+			// Only account for markets this engine actually traded; the wallet
+			// may carry activity from other tools.
+			if known, err := e.Ledger.KnownMarket(ctx, f.MarketID); err != nil || !known {
+				continue
+			}
+
+			dec := f.Market.QuoteDecimals
+			qty := parseScaled(f.Quantity, dec)
+			yesPx := parseScaled(f.FillPrice, dec)
+			if qty <= 0 {
+				continue
+			}
+
+			// Work out which side WE were on. The taker's direction is known;
+			// the maker is the opposite of it.
+			weAreTaker := strings.EqualFold(f.Taker, me)
+			buyingUp := f.TakerIsBid
+			if !weAreTaker {
+				buyingUp = !f.TakerIsBid
+			}
+
+			kind, cost, signed := "BUY_UP", yesPx, qty
+			if !buyingUp {
+				kind, cost, signed = "BUY_DN", 1-yesPx, -qty
+			}
+
+			if err := e.Ledger.RecordFill(ctx, ledger.FillRow{
+				Key: key, TxHash: f.TxHash, MarketID: f.MarketID, Kind: kind,
+				// No model snapshot exists for a fill we did not submit, so fair
+				// value is recorded as the execution price. That makes its edge
+				// contribution exactly zero rather than a guess — the honest
+				// choice when we cannot know what we believed at the time.
+				Price: cost, Quantity: qty, Fair: yesPx,
+			}); err != nil {
+				continue
+			}
+			e.addInventory(f.MarketID, signed)
+			added++
+		}
+		if added > 0 {
+			e.bump(func(s *Stats) { s.Fills += int64(added) })
+			e.Log.Printf("reconcile: ingested %d fill(s) that arrived without a receipt", added)
+		}
+	}
+}
+
+// parseScaled converts a decimal string in pool units to collateral units.
+func parseScaled(v string, dec int) float64 {
+	f, ok := new(big.Float).SetString(v)
+	if !ok {
+		return 0
+	}
+	den := new(big.Float).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(dec)), nil))
+	out, _ := new(big.Float).Quo(f, den).Float64()
+	return out
 }

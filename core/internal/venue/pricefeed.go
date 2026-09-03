@@ -3,6 +3,7 @@ package venue
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -167,42 +168,155 @@ func (c *Client) CandlesM1(ctx context.Context, feedURL, base string, from int64
 	return all, nil
 }
 
-// SpotSeries indexes index-price candles by minute for O(1) historical lookups.
-//
-// It stores each bucket's OPEN, not its close. A bucket keyed by its start
-// timestamp but holding its close would hand a caller the price from the END of
-// that minute — up to 59 seconds of future movement. At BTC's fitted volatility
-// that is roughly 1 sigma, which at five minutes to expiry removes nearly half
-// the remaining uncertainty and inflates any backtest built on it.
-//
-// The open is the price at the start of the minute containing t, so it is
-// strictly known by time t. Nothing here may return information from the future.
-type SpotSeries map[int64]float64
+// ---- replay series -------------------------------------------------------
 
+// SpotObs is one index-price observation, stamped with the wall-clock time at
+// which that price became OBSERVABLE -- not the time the bucket it came from
+// opened.
+//
+// That distinction is the entire reason this type exists. An M1 candle's close
+// is not knowable until the bucket ends, so pricing a decision made mid-bucket
+// with that close leaks up to 59 seconds of the future into the prediction. At
+// BTC's fitted volatility that is roughly 1 sigma, which near expiry removes a
+// large share of the uncertainty the model exists to estimate: a backtest built
+// that way fits a volatility far too small, because part of the diffusion it is
+// meant to forecast has already happened.
+type SpotObs struct {
+	At    int64 // unix seconds at which this price was observable
+	Price float64
+}
+
+// SpotSeries is a time-ordered index-price history for one asset, built for
+// replay. Lookups are strictly causal: At(t) can only return a price that was
+// already observable at t.
+type SpotSeries struct {
+	obs      []SpotObs // ascending by At, one entry per timestamp
+	maxStale int64     // refuse to serve an observation older than this
+}
+
+// candleObsLag is how long after a bucket opens that its close is knowable.
+const candleObsLag = 60
+
+// BuildSpotSeries turns M1 candles into a causal replay series.
+//
+// Each candle yields TWO observations, because each end is knowable at a
+// different moment: the OPEN is the price at bucketStart, and the CLOSE is not
+// knowable until bucketStart+60. Emitting both doubles the replay's resolution
+// while keeping every point strictly causal -- using only the open would throw
+// away a minute of real information, and using only the close would ignore a
+// price that was already public.
 func BuildSpotSeries(cs []FeedCandle) SpotSeries {
-	s := make(SpotSeries, len(cs))
+	obs := make([]SpotObs, 0, 2*len(cs))
 	for _, c := range cs {
 		t, err := strconv.ParseInt(c.BucketStart.String(), 10, 64)
 		if err != nil {
 			continue
 		}
-		v, ok := c.Open.Float()
-		if !ok {
-			continue
+		if v, ok := c.Open.Float(); ok {
+			obs = append(obs, SpotObs{At: t, Price: v / 1e18})
 		}
-		s[t/60] = v / 1e18
+		if v, ok := c.Close.Float(); ok {
+			obs = append(obs, SpotObs{At: t + candleObsLag, Price: v / 1e18})
+		}
 	}
-	return s
+	// Tolerate a few missing buckets, plus the bucket length itself.
+	return newSpotSeries(obs, 5*60+candleObsLag)
 }
 
-// At returns the index price knowable at time t, tolerating small gaps in the
-// feed by walking backwards only. It never looks forward.
+// BuildSpotSeriesFromPoints turns raw index-price points into a causal replay
+// series. This is the table the live engine polls, so a backtest built on it
+// and the engine cannot disagree about what was knowable when. Prefer it.
+func BuildSpotSeriesFromPoints(ps []SpotObs) SpotSeries {
+	return newSpotSeries(ps, 30)
+}
+
+func newSpotSeries(obs []SpotObs, maxStale int64) SpotSeries {
+	sort.Slice(obs, func(i, j int) bool { return obs[i].At < obs[j].At })
+	out := obs[:0]
+	for i, o := range obs {
+		if i > 0 && o.At == out[len(out)-1].At {
+			out[len(out)-1] = o // last write for a timestamp wins
+			continue
+		}
+		out = append(out, o)
+	}
+	return SpotSeries{obs: out, maxStale: maxStale}
+}
+
+// Len reports how many observations the series holds.
+func (s SpotSeries) Len() int { return len(s.obs) }
+
+// Span reports the first and last observation times, or (0,0) when empty.
+func (s SpotSeries) Span() (int64, int64) {
+	if len(s.obs) == 0 {
+		return 0, 0
+	}
+	return s.obs[0].At, s.obs[len(s.obs)-1].At
+}
+
+// At returns the most recent index price observable at or before t, and whether
+// one exists within the series' staleness tolerance.
+//
+// It finds the last observation with At <= t. Returning anything stamped after
+// t would be look-ahead, which this type exists to make impossible.
 func (s SpotSeries) At(t int64) (float64, bool) {
-	m := t / 60
-	for back := int64(0); back <= 5; back++ {
-		if v, ok := s[m-back]; ok {
-			return v, true
+	i := sort.Search(len(s.obs), func(i int) bool { return s.obs[i].At > t }) - 1
+	if i < 0 {
+		return 0, false
+	}
+	if t-s.obs[i].At > s.maxStale {
+		return 0, false
+	}
+	return s.obs[i].Price, true
+}
+
+// ---- raw index-price history (the series the engine trades) --------------
+
+type pricePointRow struct {
+	ID             string `json:"id"`
+	Spot           numStr `json:"spot"`
+	BlockTimestamp numStr `json:"blockTimestamp"`
+}
+
+const pricePointsQ = `query($base: String!, $from: numeric!, $a: String!) {
+  PricePoint(where: {base:{_eq:$base}, blockTimestamp:{_gte:$from}, id:{_gt:$a}},
+             order_by:{id:asc}, limit:1000) {
+    id spot blockTimestamp
+  }
+}`
+
+// PricePoints returns raw index-price observations for one asset since `from`,
+// paged on id. This is the same table Spots() reads live, at roughly one point
+// per second, which is why replaying it removes a whole class of replay bias.
+func (c *Client) PricePoints(ctx context.Context, feedURL, base string, from int64, maxPages int) ([]SpotObs, error) {
+	var all []SpotObs
+	cursor := ""
+	for i := 0; i < maxPages; i++ {
+		var out struct {
+			PricePoint []pricePointRow `json:"PricePoint"`
+		}
+		vars := map[string]any{"base": base, "from": from, "a": cursor}
+		if err := gqlAt(ctx, feedURL, pricePointsQ, vars, &out); err != nil {
+			return all, err
+		}
+		if len(out.PricePoint) == 0 {
+			return all, nil
+		}
+		for _, p := range out.PricePoint {
+			ts, err := strconv.ParseInt(p.BlockTimestamp.String(), 10, 64)
+			if err != nil {
+				continue
+			}
+			v, ok := p.Spot.Float()
+			if !ok {
+				continue
+			}
+			all = append(all, SpotObs{At: ts, Price: v / 1e18})
+		}
+		cursor = out.PricePoint[len(out.PricePoint)-1].ID
+		if len(out.PricePoint) < 1000 {
+			return all, nil
 		}
 	}
-	return 0, false
+	return all, nil
 }

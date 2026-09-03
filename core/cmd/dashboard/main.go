@@ -141,12 +141,15 @@ type LiveRow struct {
 	Open        float64 `json:"open"`
 	Fair        float64 `json:"fair"`
 	Uncertainty float64 `json:"uncertainty"`
-	Bid         float64 `json:"bid"`
-	Ask         float64 `json:"ask"`
-	Spread      float64 `json:"spread"`
-	OurSpread   float64 `json:"ourSpread"`
-	Verdict     string  `json:"verdict"`
-	Calibrated  bool    `json:"calibrated"`
+	// Residual is the calibration map's measured error at this probability --
+	// the edge a take has to clear before it means anything.
+	Residual   float64 `json:"residual"`
+	Bid        float64 `json:"bid"`
+	Ask        float64 `json:"ask"`
+	Spread     float64 `json:"spread"`
+	OurSpread  float64 `json:"ourSpread"`
+	Verdict    string  `json:"verdict"`
+	Calibrated bool    `json:"calibrated"`
 }
 
 func (s *server) live(w http.ResponseWriter, r *http.Request) {
@@ -213,13 +216,19 @@ func (s *server) live(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		sigma, _ := model.SigmaPerMin(im.Asset, im.IntervalSecs())
-		row.Fair = model.FairValue(sp.Price, row.Open, sigma, secs)
+		cmap := model.CalibrationMap()
+		rawFair := model.FairValue(sp.Price, row.Open, sigma, secs)
+		// Show the calibrated probability, because that is the one the engine
+		// acts on. Displaying the raw diffusion estimate would make the
+		// dashboard disagree with the strategy it is reporting.
+		row.Fair = cmap.Apply(rawFair)
+		row.Residual = cmap.Residual(rawFair)
 		row.Uncertainty = model.Uncertainty(sp.Price, row.Open, sigma, secs, 15)
 
 		// Ask the engine's own logic what it would do, rather than restating it
 		// here. A dashboard that reimplements the strategy eventually lies about it.
 		p := maker.DefaultParams()
-		if tk := maker.ShouldTake(row.Fair, row.Uncertainty, row.Bid, row.Ask, p); tk.Any() {
+		if tk := maker.ShouldTake(row.Fair, row.Uncertainty, row.Residual, row.Bid, row.Ask, p); tk.Any() {
 			row.Verdict = "TAKE — " + tk.Why
 			row.OurSpread = 0
 		} else {

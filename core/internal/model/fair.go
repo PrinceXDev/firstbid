@@ -20,23 +20,49 @@ type Vol struct {
 	N           int
 }
 
-// Calibration is the volatility multiplier fitted by cmd/backtest.
+// Calibration is the volatility multiplier fitted by cmd/backtest, applied to
+// the raw measured sigma in SigmaPerMin.
 //
-// Terminal-move sigma (fitted from oracle open->close) overstates the diffusion
-// that actually matters for settlement, because the settlement reference and the
-// index feed are different series. The multiplier corrects that scale error.
-//
-// Fitted on the OLDER half of 15,386 replayed predictions and validated on the
-// newer half it never saw: Brier 0.1395 vs 0.2500 baseline, +44.2% skill,
-// reliability within +/-0.05 in every decile.
+// HISTORY, because it matters: this constant was 0.530 for most of the build,
+// fitted against a backtest whose spot lookup returned the close of the M1
+// candle CONTAINING each decision time -- up to 59 seconds of look-ahead. With
+// part of the future known, less diffusion remains to explain, so the fitter
+// chose a sigma that was far too small and the model became badly overconfident
+// in the tails. That is what produced the reported +59.5% skill, and it is what
+// lost 37% of deployed capital live (edge +5.68, selection -41.44 over 53 fills).
 //
 // An earlier value of 0.530 was measured against a backtest that leaked future
 // prices: the spot series was keyed by each minute's start but held that
 // minute's CLOSE, so every sample saw up to 59 seconds ahead. Removing the leak
 // raised the fitted multiplier substantially, which is to say the model had been
-// systematically OVERCONFIDENT — pushing probabilities too near 0 and 1, and
+// systematically OVERCONFIDENT -- pushing probabilities too near 0 and 1, and
 // therefore seeing mispricing that was not there.
-const Calibration = 0.636
+//
+// venue.SpotSeries is now strictly causal, and cmd/backtest defaults to
+// replaying the same 1s PricePoint feed the engine trades, so replay and
+// production cannot disagree about what was knowable when. See docs/AUTOPSY.md
+// for the measurement and what it cost.
+//
+// k is REGIME-DEPENDENT, which is worth stating plainly because two honest
+// measurements of it disagree:
+//
+//	720h of M1 candles, 15,485 predictions : 0.635 (older half) / 0.680 (full)
+//	 96h of the 1s feed, 10,705 predictions : 0.710 (older half) / 0.720 (full)
+//
+// The candle sample is longer and averages more regimes; the points sample is
+// the series the engine actually trades. We ship the HIGHER end, because a
+// larger sigma means less confident probabilities, and overconfidence is the
+// specific failure that cost 37% of deployed capital. Being under-confident
+// only forgoes trades. At 0.710 on the traded feed no out-of-sample decile is
+// off by more than 0.032; at 0.635 on candles the top four deciles are all
+// still overconfident, the worst by 0.045.
+//
+// A single multiplier corrects a scale error, not a curve shape. An isotonic
+// calibration map was fitted to correct the shape as well and did NOT survive
+// its own out-of-sample test, so it is deliberately not shipped -- see
+// calibmap.go. What the take rule uses instead is CalibrationError, the largest
+// measured out-of-sample decile error.
+const Calibration = 0.715
 
 // fitted holds per-minute volatility measured per (asset, cadence) by
 // cmd/calibrate against resolved mainnet windows.
@@ -48,13 +74,17 @@ const Calibration = 0.636
 // Cadences absent from this table have NO resolved history to fit against, so
 // the engine refuses to quote them rather than extrapolating. Quoting a market
 // we have not validated is how a maker donates money.
+// These are RAW measured values. Calibration is applied in SigmaPerMin, never
+// baked in here -- when it was baked in, cmd/backtest's fitter multiplied a
+// second time and its reported k meant something different from what it looked
+// like, which hid the overconfidence for days.
 var fitted = map[cadence]Vol{
-	{"BTC", 300}:  {Asset: "BTC", SigmaPerMin: 0.000513 * Calibration, N: 512},
-	{"BTC", 900}:  {Asset: "BTC", SigmaPerMin: 0.000504 * Calibration, N: 2880},
-	{"BTC", 3600}: {Asset: "BTC", SigmaPerMin: 0.000517 * Calibration, N: 720},
-	{"ETH", 300}:  {Asset: "ETH", SigmaPerMin: 0.000683 * Calibration, N: 470},
-	{"ETH", 900}:  {Asset: "ETH", SigmaPerMin: 0.000681 * Calibration, N: 2880},
-	{"ETH", 3600}: {Asset: "ETH", SigmaPerMin: 0.000707 * Calibration, N: 720},
+	{"BTC", 300}:  {Asset: "BTC", SigmaPerMin: 0.000513, N: 512},
+	{"BTC", 900}:  {Asset: "BTC", SigmaPerMin: 0.000504, N: 2880},
+	{"BTC", 3600}: {Asset: "BTC", SigmaPerMin: 0.000517, N: 720},
+	{"ETH", 300}:  {Asset: "ETH", SigmaPerMin: 0.000683, N: 470},
+	{"ETH", 900}:  {Asset: "ETH", SigmaPerMin: 0.000681, N: 2880},
+	{"ETH", 3600}: {Asset: "ETH", SigmaPerMin: 0.000707, N: 720},
 }
 
 type cadence struct {
@@ -62,9 +92,17 @@ type cadence struct {
 	intervalSec int64
 }
 
-// SigmaPerMin returns the fitted volatility for one asset and cadence, and
-// whether we have calibration for it at all.
+// SigmaPerMin returns the calibrated volatility the engine prices with: the raw
+// measured value scaled by Calibration.
 func SigmaPerMin(asset string, intervalSec int64) (float64, bool) {
+	v, ok := fitted[cadence{asset, intervalSec}]
+	return v.SigmaPerMin * Calibration, ok
+}
+
+// SigmaPerMinRaw returns the volatility as measured by cmd/calibrate, before
+// any multiplier. Fitters must use this, so the k they report is the total
+// multiplier rather than a correction on top of an existing one.
+func SigmaPerMinRaw(asset string, intervalSec int64) (float64, bool) {
 	v, ok := fitted[cadence{asset, intervalSec}]
 	return v.SigmaPerMin, ok
 }
@@ -79,6 +117,7 @@ func Calibrated(asset string, intervalSec int64) bool {
 func Coverage() []Vol {
 	out := make([]Vol, 0, len(fitted))
 	for _, v := range fitted {
+		v.SigmaPerMin *= Calibration
 		out = append(out, v)
 	}
 	return out

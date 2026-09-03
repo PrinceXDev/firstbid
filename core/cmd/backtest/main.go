@@ -9,11 +9,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"math"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/firstbid/core/internal/model"
@@ -34,7 +36,24 @@ type pred struct {
 }
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	feedMode := flag.String("feed", "points",
+		"index-price series to replay: \"points\" (1s PricePoint, what the engine reads) or \"candles\" (M1)")
+	window := flag.Duration("window", 0,
+		"how much history to replay (default 24h for points, 720h for candles)")
+	flag.Parse()
+
+	if *feedMode != "points" && *feedMode != "candles" {
+		log.Fatalf("-feed must be \"points\" or \"candles\", got %q", *feedMode)
+	}
+	if *window <= 0 {
+		if *feedMode == "points" {
+			*window = 24 * time.Hour
+		} else {
+			*window = 720 * time.Hour
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
 	gql, feed := venue.MainnetGQL, venue.PriceFeedMainnet
@@ -48,7 +67,7 @@ func main() {
 	}
 	defer c.Close()
 
-	since := time.Now().Add(-30 * 24 * time.Hour).Unix()
+	since := time.Now().Add(-*window).Unix()
 	fmt.Print("loading resolved windows... ")
 	obs, err := c.BuildCalibrationSet(ctx, since, 60)
 	if err != nil {
@@ -63,15 +82,27 @@ func main() {
 			earliest = o.TradingStart
 		}
 	}
-	fmt.Print("loading M1 index candles... ")
+	// Both builders stamp each observation with the time it became knowable, so
+	// SpotSeries.At can never hand back a price from after the decision moment.
+	// "points" replays the very table the live engine polls; "candles" is the
+	// cheaper, coarser series kept for cross-checking.
+	fmt.Printf("loading index prices (%s, %s)... ", *feedMode, window.String())
 	series := map[string]venue.SpotSeries{}
 	for _, a := range []string{"BTC", "ETH"} {
-		cs, err := c.CandlesM1(ctx, feed, a, earliest, 40)
-		if err != nil {
-			log.Printf("%s candles: %v", a, err)
+		if *feedMode == "points" {
+			ps, err := c.PricePoints(ctx, feed, a, earliest, 400)
+			if err != nil {
+				log.Printf("%s price points: %v", a, err)
+			}
+			series[a] = venue.BuildSpotSeriesFromPoints(ps)
+		} else {
+			cs, err := c.CandlesM1(ctx, feed, a, earliest, 40)
+			if err != nil {
+				log.Printf("%s candles: %v", a, err)
+			}
+			series[a] = venue.BuildSpotSeries(cs)
 		}
-		series[a] = venue.BuildSpotSeries(cs)
-		fmt.Printf("%s=%d ", a, len(series[a]))
+		fmt.Printf("%s=%d ", a, series[a].Len())
 	}
 	fmt.Println()
 
@@ -83,7 +114,9 @@ func main() {
 			skipped++
 			continue
 		}
-		sigma, ok := model.SigmaPerMin(o.Asset, o.IntervalSec)
+		// Raw, not calibrated: fitK reports the TOTAL multiplier, and
+		// "BEFORE" below means the model as it ships (raw * model.Calibration).
+		sigma, ok := model.SigmaPerMinRaw(o.Asset, o.IntervalSec)
 		if !ok {
 			skipped++
 			continue
@@ -101,7 +134,7 @@ func main() {
 				continue
 			}
 			preds = append(preds, pred{
-				p:        model.FairValue(spot, open, sigma, secsLeft),
+				p:        model.FairValue(spot, open, sigma*model.Calibration, secsLeft),
 				actual:   o.Up,
 				asset:    o.Asset,
 				frac:     f,
@@ -119,7 +152,7 @@ func main() {
 		return
 	}
 
-	fmt.Println("=== BEFORE RECALIBRATION ===")
+	fmt.Printf("=== AS SHIPPED (k = model.Calibration = %.3f) ===\n", model.Calibration)
 	reliability(preds)
 	fmt.Println()
 	scores(preds)
@@ -142,6 +175,57 @@ func main() {
 	reliability(test)
 	fmt.Println()
 	scores(test)
+
+	// ---- calibration map ----------------------------------------------
+	// A single sigma multiplier moves the reliability curve; it cannot change
+	// its shape. The honest curve is S-shaped, so residual overconfidence above
+	// 0.5 survives any k. Fit a monotone map on the older half and score it on
+	// the newer half, exactly as with k.
+	trainP, trainW := shippedPairs(train)
+	testP, testW := shippedPairs(test)
+
+	minBin := len(trainP) / 12
+	if minBin < 60 {
+		minBin = 60
+	}
+	cmap, mapErr := model.FitIsotonic(trainP, trainW, minBin)
+	if mapErr != nil {
+		fmt.Println()
+		fmt.Printf("calibration map: not fitted (%v)", mapErr)
+		fmt.Println()
+	} else {
+		mappedTest := make([]float64, len(testP))
+		for i, x := range testP {
+			mappedTest[i] = cmap.Apply(x)
+		}
+		rawB := model.Brier(testP, testW)
+		calB := model.Brier(mappedTest, testW)
+
+		fmt.Println()
+		fmt.Printf("=== CALIBRATION MAP (isotonic, %d knots, minBin=%d, fitted on TRAIN) ===",
+			len(cmap.Knots()), minBin)
+		fmt.Println()
+		fmt.Printf("%-10s %8s %14s %10s\n", "raw p", "n", "-> calibrated", "residual")
+		for _, kn := range cmap.Knots() {
+			fmt.Printf("%-10.3f %8d %14.3f %10.3f\n", kn.Raw, kn.N, kn.Cal, kn.Raw-kn.Cal)
+		}
+		fmt.Println()
+		fmt.Println("OUT-OF-SAMPLE reliability error per decile (0.0-0.1 .. 0.9-1.0)")
+		reliabilityOf(testP, testW, "  raw   ")
+		reliabilityOf(mappedTest, testW, "  mapped")
+		fmt.Println()
+		fmt.Printf("  Brier raw      : %.4f  (skill %+.2f%%)\n", rawB, 100*(1-rawB/0.25))
+		fmt.Printf("  Brier mapped   : %.4f  (skill %+.2f%%)\n", calB, 100*(1-calB/0.25))
+		if calB < rawB {
+			fmt.Printf("  the map earns its place: %.1f%% lower Brier out of sample\n",
+				100*(1-calB/rawB))
+		} else {
+			fmt.Printf("  the map does NOT improve out of sample; do not ship it\n")
+		}
+		if err := exportMap(os.Getenv("FB_MAP"), cmap); err != nil {
+			log.Printf("export map: %v", err)
+		}
+	}
 
 	k := fitK(preds)
 	fmt.Println()
@@ -318,6 +402,14 @@ type CoverageOut struct {
 	N           int     `json:"n"`
 }
 
+// export writes the artifact the dashboard renders.
+//
+// Every probability here is RECOMPUTED from each prediction's stored inputs at
+// the given k, never read from pred.p. The in-place refits in main() share a
+// backing array with `test`, so reading pred.p would export buckets computed at
+// the full-set k while labelling them with the train-fitted one -- a number that
+// does not match its own claim, which is the exact failure this whole build is
+// recovering from.
 func export(path string, all, test []pred, k float64) error {
 	const nb = 10
 	type b struct {
@@ -325,9 +417,12 @@ func export(path string, all, test []pred, k float64) error {
 		sump float64
 		hits int
 	}
+	at := func(x pred) float64 {
+		return model.FairValue(x.spot, x.open, x.sigma*k, x.secsLeft)
+	}
 	buckets := make([]b, nb)
 	for _, x := range test {
-		i := int(x.p * nb)
+		i := int(at(x) * nb)
 		if i >= nb {
 			i = nb - 1
 		}
@@ -335,7 +430,7 @@ func export(path string, all, test []pred, k float64) error {
 			i = 0
 		}
 		buckets[i].n++
-		buckets[i].sump += x.p
+		buckets[i].sump += at(x)
 		if x.actual {
 			buckets[i].hits++
 		}
@@ -352,7 +447,8 @@ func export(path string, all, test []pred, k float64) error {
 		if x.actual {
 			a = 1.0
 		}
-		bm += (x.p - a) * (x.p - a)
+		p := at(x)
+		bm += (p - a) * (p - a)
 		b5 += (0.5 - a) * (0.5 - a)
 	}
 	n := float64(len(test))
@@ -386,7 +482,8 @@ func export(path string, all, test []pred, k float64) error {
 			if x.actual {
 				a = 1.0
 			}
-			m += (x.p - a) * (x.p - a)
+			p := at(x)
+			m += (p - a) * (p - a)
 			base += (0.5 - a) * (0.5 - a)
 		}
 		cnt := float64(len(g[f]))
@@ -404,4 +501,71 @@ func export(path string, all, test []pred, k float64) error {
 		return err
 	}
 	return os.WriteFile(path, blob, 0o644)
+}
+
+// shippedPairs recomputes the probabilities the ENGINE would have produced --
+// raw sigma scaled by model.Calibration -- from each prediction's stored
+// inputs. Recomputing rather than reading pred.p keeps this immune to the
+// in-place refits above.
+func shippedPairs(ps []pred) ([]float64, []bool) {
+	out := make([]float64, len(ps))
+	win := make([]bool, len(ps))
+	for i, x := range ps {
+		out[i] = model.FairValue(x.spot, x.open, x.sigma*model.Calibration, x.secsLeft)
+		win[i] = x.actual
+	}
+	return out, win
+}
+
+// reliabilityOf prints one compact row of per-decile calibration error.
+func reliabilityOf(ps []float64, wins []bool, tag string) {
+	const nb = 10
+	var n [nb]int
+	var sp, hit [nb]float64
+	for i, p := range ps {
+		b := int(p * nb)
+		if b >= nb {
+			b = nb - 1
+		}
+		if b < 0 {
+			b = 0
+		}
+		n[b]++
+		sp[b] += p
+		if wins[i] {
+			hit[b]++
+		}
+	}
+	fmt.Printf("%s ", tag)
+	for b := 0; b < nb; b++ {
+		if n[b] == 0 {
+			fmt.Printf("  %4s", "-")
+			continue
+		}
+		fmt.Printf(" %+5.3f", hit[b]/float64(n[b])-sp[b]/float64(n[b]))
+	}
+	fmt.Println()
+}
+
+// exportMap writes the fitted knots as compilable Go, so the map ships as
+// reviewed source rather than a file the binary must find at runtime.
+func exportMap(path string, m model.Map) error {
+	if path == "" {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString("// Code generated by cmd/backtest -- DO NOT EDIT BY HAND.\n")
+	b.WriteString("// Regenerate:\n")
+	b.WriteString("//   FB_MAP=internal/model/calibmap_fitted.go go run ./cmd/backtest\n")
+	b.WriteString("//\n")
+	b.WriteString("// Isotonic calibration map fitted on the older half of replayed\n")
+	b.WriteString("// predictions against the 1s index feed the engine trades, and scored\n")
+	b.WriteString("// on the newer half it never saw.\n\n")
+	b.WriteString("package model\n\n")
+	b.WriteString("var fittedKnots = []Knot{\n")
+	for _, k := range m.Knots() {
+		fmt.Fprintf(&b, "	{Raw: %.6f, Cal: %.6f, N: %d},\n", k.Raw, k.Cal, k.N)
+	}
+	b.WriteString("}\n")
+	return os.WriteFile(path, []byte(b.String()), 0o644)
 }

@@ -76,6 +76,45 @@ export type PnL = {
   };
 };
 
+export type TraceOrder = {
+  at: number;
+  mode: string;
+  kind: string;
+  price: number;
+  quantity: number;
+  fair: number;
+  spot: number;
+  openPx: number;
+  secsLeft: number;
+  rested: boolean;
+  fills: number;
+  txHash: string;
+};
+
+export type TraceFill = {
+  at: number;
+  kind: string;
+  price: number;
+  quantity: number;
+  fair: number;
+  txHash: string;
+};
+
+export type Trace = {
+  marketId: string;
+  label: string;
+  asset: string;
+  intervalSec: number;
+  expiry: number;
+  tradingStart: number;
+  winner: number;
+  voided: boolean;
+  settled: boolean;
+  orders: TraceOrder[];
+  fills: TraceFill[];
+  attribution: Attribution | null;
+};
+
 /** In development the Go engine runs on :8080; in production it serves this page. */
 const BASE =
   process.env.NODE_ENV === "development" ? "http://localhost:8080" : "";
@@ -109,6 +148,10 @@ export const api = {
   calibration: (signal?: AbortSignal) =>
     get<Calibration>("/api/calibration", signal),
   pnl: (signal?: AbortSignal) => get<PnL>("/api/pnl", signal),
+  traces: (signal?: AbortSignal) =>
+    get<{ marketIds: string[] }>("/api/traces", signal),
+  trace: (id: string, signal?: AbortSignal) =>
+    get<Trace>(`/api/trace/${id}`, signal),
 };
 
 /* ---------- formatting -------------------------------------------------- */

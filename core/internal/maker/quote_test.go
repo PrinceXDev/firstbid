@@ -167,3 +167,29 @@ func TestShouldTakeClearsCalibrationResidual(t *testing.T) {
 		t.Error("refused a 0.26 edge that clears a 0.14 residual")
 	}
 }
+
+// An unchanged quote must not be cancelled and replaced: that is two cancels
+// and two placements of gas for no change to the book.
+func TestRestingQuoteHeldWhenUnchanged(t *testing.T) {
+	const tick = 0.001
+	var r restingQuote
+	q := Quote{BidUp: 0.480, AskUp: 0.520}
+
+	if r.matches(q, tick) {
+		t.Error("nothing is resting yet, so nothing can match")
+	}
+	r.set(q)
+	if !r.matches(Quote{BidUp: 0.480, AskUp: 0.520}, tick) {
+		t.Error("an identical quote must be held, not replaced")
+	}
+	if !r.matches(Quote{BidUp: 0.4803, AskUp: 0.5197}, tick) {
+		t.Error("a difference below one tick snaps to the same order")
+	}
+	if r.matches(Quote{BidUp: 0.478, AskUp: 0.520}, tick) {
+		t.Error("a move of two ticks is a different quote and must be replaced")
+	}
+	r.clear()
+	if r.matches(q, tick) {
+		t.Error("after cancelling, nothing is resting")
+	}
+}

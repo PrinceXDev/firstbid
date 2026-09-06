@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -43,7 +44,7 @@ type Engine struct {
 }
 
 type Stats struct {
-	Spawned, Reaped, Quotes, Skips, Sent, Failed, Cancelled, Fills, Crossed, Takes int64
+	Spawned, Reaped, Quotes, QuotesHeld, Skips, Sent, Failed, Cancelled, Fills, Crossed, Takes int64
 	// TakesRefused counts priced takes the per-window risk budget blocked.
 	// Reported alongside Takes because what the engine declines to do is a
 	// result, not an absence of one.
@@ -266,6 +267,11 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 	}
 
 	sigma, _ := model.SigmaPerMin(im.Asset, im.IntervalSecs())
+
+	// The venue's tick in human units; two quotes closer than this are the
+	// same order once snapped.
+	tickSize := rawToHuman(bp.TickSize, im.QuoteDec)
+	var resting restingQuote
 	// Hoisted: the map is immutable, and rebuilding it per tick would be waste.
 	cmap := model.CalibrationMap()
 
@@ -384,10 +390,22 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 		expireNs := expireNsFor(m, interval)
 		dc := decision{"make", fair, sp.Price, open, secsLeft}
 
+		// Requoting costs two cancels and two placements in gas. If the new
+		// quote lands on the same tick as the one already resting, replacing it
+		// buys nothing and burns the budget that keeps the engine alive.
+		//
+		// The orders carry their own expiry as a dead-man's switch, so leaving
+		// them in place is safe: a crashed quoter's orders still age off.
+		if !q.SkipBid && !q.SkipAsk && resting.matches(q, tickSize) {
+			e.bump(func(s *Stats) { s.QuotesHeld++ })
+			continue
+		}
+
 		// Pull last tick's quotes before posting new ones. Without this the book
 		// fills with stale orders at prices we no longer believe, and our own
 		// resting orders start self-matching the new ones.
 		e.cancelResting(ctx, m, label)
+		resting.clear()
 
 		if q.SkipBid && q.SkipAsk {
 			e.bump(func(s *Stats) { s.Skips++ })
@@ -402,13 +420,44 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 		// inventory, because the pool mints the pair when they cross
 		// (mint-a-pair). BOTH are priced in YES terms: the bid goes in at BidUp,
 		// and the Down order goes in at AskUp, where it rests as our ask.
+		placed := 0
 		if !q.SkipBid {
-			e.emit(ctx, im, m, bp, label, venue.BuyYes, q.BidUp, expireNs, dc)
+			if id := e.emit(ctx, im, m, bp, label, venue.BuyYes, q.BidUp, expireNs, dc); id != nil {
+				placed++
+			}
 		}
 		if !q.SkipAsk {
-			e.emit(ctx, im, m, bp, label, venue.BuyNo, q.AskUp, expireNs, dc)
+			if id := e.emit(ctx, im, m, bp, label, venue.BuyNo, q.AskUp, expireNs, dc); id != nil {
+				placed++
+			}
+		}
+		if placed == 2 {
+			resting.set(q)
 		}
 	}
+}
+
+// restingQuote remembers what we last put on the book, so an unchanged quote is
+// left alone instead of being cancelled and replaced at the same price.
+type restingQuote struct {
+	live     bool
+	bid, ask float64
+}
+
+func (r *restingQuote) set(q Quote) { r.live, r.bid, r.ask = true, q.BidUp, q.AskUp }
+func (r *restingQuote) clear()      { r.live = false }
+
+// matches reports whether a new quote would land on the same ticks as the one
+// already resting. Comparing on the venue's own grid is what makes this exact:
+// two prices that differ by less than a tick are the same order.
+func (r *restingQuote) matches(q Quote, tick float64) bool {
+	if !r.live || tick <= 0 {
+		return false
+	}
+	same := func(a, b float64) bool {
+		return math.Abs(a-b) < tick
+	}
+	return same(r.bid, q.BidUp) && same(r.ask, q.AskUp)
 }
 
 func (e *Engine) emit(ctx context.Context, im venue.IndexerMarket, m *venue.Market,

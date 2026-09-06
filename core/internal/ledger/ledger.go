@@ -357,3 +357,148 @@ func (d *DB) Windows(ctx context.Context) ([]PendingWindow, error) {
 	}
 	return out, rows.Err()
 }
+
+// ---- decision trace ------------------------------------------------------
+
+// TraceOrder is one decision we made inside a window, with the model state that
+// justified it. Recording the belief alongside the action is what lets the trace
+// replay reasoning rather than just prices.
+type TraceOrder struct {
+	At       int64   `json:"at"`
+	Mode     string  `json:"mode"`
+	Kind     string  `json:"kind"`
+	Price    float64 `json:"price"`
+	Quantity float64 `json:"quantity"`
+	Fair     float64 `json:"fair"`
+	Spot     float64 `json:"spot"`
+	OpenPx   float64 `json:"openPx"`
+	SecsLeft float64 `json:"secsLeft"`
+	Rested   bool    `json:"rested"`
+	Fills    int     `json:"fills"`
+	TxHash   string  `json:"txHash"`
+}
+
+// TraceFill is one execution, valued at settlement.
+type TraceFill struct {
+	At       int64   `json:"at"`
+	Kind     string  `json:"kind"`
+	Price    float64 `json:"price"`
+	Quantity float64 `json:"quantity"`
+	Fair     float64 `json:"fair"`
+	TxHash   string  `json:"txHash"`
+}
+
+// Trace is everything that happened in one window: what we believed, what we
+// did about it, and what it turned out to be worth.
+type Trace struct {
+	MarketID     string       `json:"marketId"`
+	Label        string       `json:"label"`
+	Asset        string       `json:"asset"`
+	IntervalSec  int64        `json:"intervalSec"`
+	Expiry       int64        `json:"expiry"`
+	TradingStart int64        `json:"tradingStart"`
+	Winner       int          `json:"winner"`
+	Voided       bool         `json:"voided"`
+	Settled      bool         `json:"settled"`
+	Orders       []TraceOrder `json:"orders"`
+	Fills        []TraceFill  `json:"fills"`
+	Attribution  *Attribution `json:"attribution"`
+}
+
+// GetTrace assembles one window's full decision history.
+func (d *DB) GetTrace(ctx context.Context, marketID string) (*Trace, error) {
+	t := &Trace{MarketID: marketID, Winner: -1}
+
+	var winner sql.NullInt64
+	var settled sql.NullInt64
+	var voided int
+	err := d.sql.QueryRowContext(ctx, `
+		SELECT label, asset, interval_sec, expiry, winner, voided, settled_at
+		FROM windows WHERE market_id = ?`, marketID).
+		Scan(&t.Label, &t.Asset, &t.IntervalSec, &t.Expiry, &winner, &voided, &settled)
+	if err != nil {
+		return nil, fmt.Errorf("window %s: %w", marketID, err)
+	}
+	t.Voided = voided == 1
+	t.Settled = settled.Valid
+	if winner.Valid {
+		t.Winner = int(winner.Int64)
+	}
+	t.TradingStart = t.Expiry - t.IntervalSec
+
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT created_at, mode, kind, price, quantity, fair, spot, open_px,
+		       secs_left, rested, fills, tx_hash
+		FROM orders WHERE market_id = ? ORDER BY created_at ASC`, marketID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var o TraceOrder
+		var rested int
+		if err := rows.Scan(&o.At, &o.Mode, &o.Kind, &o.Price, &o.Quantity, &o.Fair,
+			&o.Spot, &o.OpenPx, &o.SecsLeft, &rested, &o.Fills, &o.TxHash); err != nil {
+			return nil, err
+		}
+		o.Rested = rested == 1
+		t.Orders = append(t.Orders, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	frows, err := d.sql.QueryContext(ctx, `
+		SELECT created_at, kind, price, quantity, fair, tx_hash
+		FROM fills WHERE market_id = ? ORDER BY created_at ASC`, marketID)
+	if err != nil {
+		return nil, err
+	}
+	defer frows.Close()
+	for frows.Next() {
+		var f TraceFill
+		if err := frows.Scan(&f.At, &f.Kind, &f.Price, &f.Quantity, &f.Fair, &f.TxHash); err != nil {
+			return nil, err
+		}
+		t.Fills = append(t.Fills, f)
+	}
+	if err := frows.Err(); err != nil {
+		return nil, err
+	}
+
+	if t.Settled {
+		all, err := d.Attribute(ctx)
+		if err == nil {
+			for i := range all {
+				if all[i].MarketID == marketID {
+					t.Attribution = &all[i]
+					break
+				}
+			}
+		}
+	}
+	return t, nil
+}
+
+// ListTraceable returns settled windows that carry at least one fill, newest
+// first — the windows worth replaying.
+func (d *DB) ListTraceable(ctx context.Context, limit int) ([]string, error) {
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT w.market_id FROM windows w
+		WHERE w.settled_at IS NOT NULL
+		  AND EXISTS (SELECT 1 FROM fills f WHERE f.market_id = w.market_id)
+		ORDER BY w.expiry DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

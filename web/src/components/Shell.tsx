@@ -42,7 +42,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <ModeCtx.Provider value={{ mode, setMode }}>
       <div className="min-h-screen">
         <TopBar mode={mode} setMode={setMode} />
-        <main id="main">{children}</main>
+        <MobileNav />
+      <main id="main">{children}</main>
         <Footer />
       </div>
     </ModeCtx.Provider>
@@ -61,6 +62,7 @@ function TopBar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
         <nav className="hidden items-center gap-6 md:flex" aria-label="Sections">
           <NavLink href="/">Field</NavLink>
           <NavLink href="/evidence/">Evidence</NavLink>
+          <NavLink href="/trace/">Trace</NavLink>
           <NavLink href="/ledger/">Ledger</NavLink>
         </nav>
 
@@ -93,11 +95,33 @@ function TopBar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
   );
 }
 
+/**
+ * Navigation for narrow screens.
+ *
+ * The desktop bar hides its links below md, which left mobile with no way to
+ * reach Evidence, Trace or Ledger at all. A scrollable row under the header
+ * costs one line of height and restores the whole product.
+ */
+function MobileNav() {
+  return (
+    <nav
+      className="hairline-b flex gap-5 overflow-x-auto px-6 py-2.5 md:hidden"
+      aria-label="Sections"
+      style={{ background: "var(--color-surface)" }}
+    >
+      <NavLink href="/">Field</NavLink>
+      <NavLink href="/evidence/">Evidence</NavLink>
+      <NavLink href="/trace/">Trace</NavLink>
+      <NavLink href="/ledger/">Ledger</NavLink>
+    </nav>
+  );
+}
+
 function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <a
       href={href}
-      className="text-[13px] transition-colors hover:text-[var(--color-ink)]"
+      className="whitespace-nowrap text-[13px] transition-colors hover:text-[var(--color-ink)]"
       style={{ color: "var(--color-ink-2)" }}
     >
       {children}

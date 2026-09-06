@@ -20,6 +20,12 @@ export function DecisionTrace({ trace }: { trace: Trace }) {
   const events = useMemo(() => buildEvents(trace), [trace]);
   const [idx, setIdx] = useState(events.length); // start at the outcome
 
+  // Selecting a different window must start at its settlement, not at whatever
+  // decision index the previous window happened to be scrubbed to.
+  useEffect(() => {
+    setIdx(events.length);
+  }, [trace.marketId, events.length]);
+
   // Arrow keys scrub. A timeline you can only drag is a timeline nobody
   // examines carefully; stepping one decision at a time is how you actually
   // read what happened.
@@ -45,7 +51,19 @@ export function DecisionTrace({ trace }: { trace: Trace }) {
 
   const atEnd = idx >= events.length;
   const current = atEnd ? null : events[idx];
-  const shown = events.slice(0, Math.min(idx + 1, events.length));
+
+  // Executions are their own record. Inferring them from an order's `fills`
+  // count and charging the requested size at the submitted limit would miss
+  // maker fills found by reconciliation (which have no order at all) and would
+  // misprice partial or price-improved executions.
+  const fills = useMemo(() => executions(trace), [trace]);
+  // Time runs from high secondsLeft to low, so a fill has already happened at
+  // the scrub point when its secondsLeft is at least the cutoff. At settlement
+  // the cutoff is the end of the window, which admits every fill.
+  const cutoff = atEnd
+    ? Number.NEGATIVE_INFINITY
+    : (current?.secsLeft ?? Number.NEGATIVE_INFINITY);
+  const filledSoFar = fills.filter((f) => f.secsLeft >= cutoff);
 
   return (
     <div className="panel overflow-hidden">
@@ -60,7 +78,7 @@ export function DecisionTrace({ trace }: { trace: Trace }) {
       </header>
 
       <div className="px-5 py-6">
-        <Plot trace={trace} events={events} upto={idx} />
+        <Plot trace={trace} events={events} fills={fills} upto={idx} cutoff={cutoff} />
 
         <Scrubber
           max={events.length}
@@ -75,7 +93,7 @@ export function DecisionTrace({ trace }: { trace: Trace }) {
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,320px)]">
           <Moment trace={trace} event={current} atEnd={atEnd} />
-          <Running trace={trace} events={shown} atEnd={atEnd} />
+          <Running trace={trace} fills={filledSoFar} atEnd={atEnd} />
         </div>
       </div>
     </div>
@@ -106,16 +124,50 @@ function buildEvents(t: Trace): Event[] {
     .sort((a, b) => b.secsLeft - a.secsLeft); // window start → expiry
 }
 
+/** One actual execution, placed on the window's timeline. */
+type Execution = {
+  secsLeft: number;
+  kind: string;
+  price: number;
+  quantity: number;
+  fair: number;
+  txHash: string;
+};
+
+/**
+ * The window's real executions, from the ledger's fill records.
+ *
+ * Fills carry a wall-clock timestamp; the window carries its expiry, so the
+ * position on the timeline is expiry minus that timestamp. Reconciled maker
+ * fills appear here even though no order of ours produced a receipt for them.
+ */
+function executions(t: Trace): Execution[] {
+  return t.fills
+    .map((f) => ({
+      secsLeft: Math.max(0, t.expiry - f.at),
+      kind: f.kind,
+      price: f.price,
+      quantity: f.quantity,
+      fair: f.fair,
+      txHash: f.txHash,
+    }))
+    .sort((a, b) => b.secsLeft - a.secsLeft);
+}
+
 /* --------------------------------------------------------------- plot --- */
 
 function Plot({
   trace,
   events,
+  fills,
   upto,
+  cutoff,
 }: {
   trace: Trace;
   events: Event[];
+  fills: Execution[];
   upto: number;
+  cutoff: number;
 }) {
   const W = 1000;
   const H = 260;
@@ -163,20 +215,29 @@ function Plot({
       <path d={path} fill="none" stroke="var(--color-model)" strokeOpacity="0.18" strokeWidth="2" />
       <path d={revealed} fill="none" stroke="var(--color-model)" strokeWidth="2.5" />
 
-      {/* each decision, as a mark at the price we actually paid */}
+      {/* decisions: hollow marks at the price we asked for */}
       {events.slice(0, Math.min(upto + 1, events.length)).map((e, i) => {
-        const filled = e.order.fills > 0;
         const c = e.order.kind === "BUY_UP" ? "var(--color-up)" : "var(--color-down)";
         const py = e.order.kind === "BUY_UP" ? y(e.order.price) : y(1 - e.order.price);
         return (
-          <g key={i}>
+          <g key={`o${i}`}>
             <line x1={x(e.secsLeft)} y1={y(e.fair)} x2={x(e.secsLeft)} y2={py}
-              stroke={c} strokeOpacity="0.3" />
-            <circle cx={x(e.secsLeft)} cy={py} r={filled ? 5 : 3.5}
-              fill={filled ? c : "none"} stroke={c} strokeWidth="1.5">
-              <title>{`${e.label} at ${p3(e.order.price)}${filled ? " — filled" : " — rested"}`}</title>
+              stroke={c} strokeOpacity="0.25" />
+            <circle cx={x(e.secsLeft)} cy={py} r="3.5" fill="none" stroke={c} strokeWidth="1.5">
+              <title>{`${e.label} asked at ${p3(e.order.price)}`}</title>
             </circle>
           </g>
+        );
+      })}
+
+      {/* executions: solid marks at the price that actually traded */}
+      {fills.filter((f) => f.secsLeft >= cutoff).map((f, i) => {
+        const c = f.kind === "BUY_UP" ? "var(--color-up)" : "var(--color-down)";
+        const py = f.kind === "BUY_UP" ? y(f.price) : y(1 - f.price);
+        return (
+          <circle key={`f${i}`} cx={x(f.secsLeft)} cy={py} r="5" fill={c}>
+            <title>{`FILLED ${f.kind} ${f.quantity.toFixed(1)} at ${p3(f.price)}`}</title>
+          </circle>
         );
       })}
 
@@ -309,28 +370,27 @@ function Moment({
   );
 }
 
-/** Running totals as the scrub advances, so cost accumulates visibly. */
+/** Running totals as the scrub advances, from real executions. */
 function Running({
   trace,
-  events,
+  fills,
   atEnd,
 }: {
   trace: Trace;
-  events: Event[];
+  fills: Execution[];
   atEnd: boolean;
 }) {
-  const filled = events.filter((e) => e.order.fills > 0);
-  const spent = filled.reduce((n, e) => n + e.order.price * e.order.quantity, 0);
-  const contracts = filled.reduce((n, e) => n + e.order.quantity, 0);
+  const spent = fills.reduce((n, f) => n + f.price * f.quantity, 0);
+  const contracts = fills.reduce((n, f) => n + f.quantity, 0);
 
   return (
     <div className="rounded-md px-4 py-4" style={{ background: "var(--color-raised)" }}>
-      <div className="t-micro mb-3">so far in this window</div>
+      <div className="t-micro mb-3">executed so far in this window</div>
       <dl className="grid grid-cols-2 gap-y-3">
-        <Cell label="decisions" value={String(events.length)} />
-        <Cell label="filled" value={String(filled.length)} />
+        <Cell label="fills" value={String(fills.length)} />
         <Cell label="contracts" value={contracts.toFixed(1)} />
         <Cell label="committed" value={spent.toFixed(3)} />
+        <Cell label="of total fills" value={String(trace.fills.length)} />
       </dl>
       {atEnd && trace.attribution && (
         <div className="hairline-t mt-4 pt-3">

@@ -220,13 +220,40 @@ func (a Attribution) Verdict() string {
 
 // Attribute computes realised P&L for every settled window we traded.
 func (d *DB) Attribute(ctx context.Context) ([]Attribution, error) {
-	rows, err := d.sql.QueryContext(ctx, `
+	return d.attribute(ctx, "")
+}
+
+// AttributeMarket computes realised P&L for a single settled window.
+//
+// Fetching one window's attribution must not read the whole ledger: a trace
+// endpoint that grows linearly with total history is a trace endpoint that
+// stops working once the engine has been running for a while.
+func (d *DB) AttributeMarket(ctx context.Context, marketID string) (*Attribution, error) {
+	as, err := d.attribute(ctx, marketID)
+	if err != nil {
+		return nil, err
+	}
+	if len(as) == 0 {
+		return nil, nil
+	}
+	return &as[0], nil
+}
+
+func (d *DB) attribute(ctx context.Context, onlyMarket string) ([]Attribution, error) {
+	query := `
 		SELECT w.market_id, w.label, w.winner, w.voided,
 		       f.kind, f.price, f.quantity, f.fair
 		FROM windows w
 		JOIN fills f ON f.market_id = w.market_id
-		WHERE w.settled_at IS NOT NULL
-		ORDER BY w.expiry ASC`)
+		WHERE w.settled_at IS NOT NULL`
+	args := []any{}
+	if onlyMarket != "" {
+		query += ` AND w.market_id = ?`
+		args = append(args, onlyMarket)
+	}
+	query += ` ORDER BY w.expiry ASC`
+
+	rows, err := d.sql.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -467,15 +494,13 @@ func (d *DB) GetTrace(ctx context.Context, marketID string) (*Trace, error) {
 	}
 
 	if t.Settled {
-		all, err := d.Attribute(ctx)
-		if err == nil {
-			for i := range all {
-				if all[i].MarketID == marketID {
-					t.Attribution = &all[i]
-					break
-				}
-			}
+		// A failure here is a failure of the endpoint. Returning 200 with a null
+		// attribution would present a database error as valid, incomplete history.
+		a, err := d.AttributeMarket(ctx, marketID)
+		if err != nil {
+			return nil, fmt.Errorf("attribution for %s: %w", marketID, err)
 		}
+		t.Attribution = a
 	}
 	return t, nil
 }

@@ -105,6 +105,15 @@ became knowable and refuses to serve anything later, and the default replay read
 the same 1-second `PricePoint` feed the live engine polls — so backtest and
 production cannot disagree about what was known when.
 
+The split is drawn between **whole windows**, never between rows. Each window
+contributes one prediction per sampled fraction, all five carrying that window's
+single outcome; a split at the row midpoint would put some of a window's rows in
+train and the rest in test, letting the same coin flip both fit the calibration
+and score it. The counts below were produced by the earlier row-level split —
+`5,352` is not a multiple of five, which is what exposed the leak — so the
+out-of-sample figures should be read as approximate until the numbers are
+regenerated on a leak-free split.
+
 ```
 $ go run ./cmd/backtest -feed=points -window=96h
 

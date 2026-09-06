@@ -2,6 +2,7 @@ package venue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -127,6 +128,18 @@ func (c *Client) OpeningPrices(ctx context.Context, marketRowIDs []string) (map[
 
 // ---- historical candles (for backtesting) --------------------------------
 
+// ErrPageCapReached means paging stopped because the caller's page limit ran
+// out while the feed still had rows to give.
+//
+// It is an error rather than a quiet short read because both pagers walk
+// OLDEST-first: stopping early drops the NEWEST part of the requested history
+// while still returning a plausible-looking series. A backtest built on that
+// silently replays a different window than the one it prints, which is exactly
+// the class of lie this whole command exists to catch. Callers get the partial
+// slice alongside the error and may use it deliberately; they cannot use it by
+// accident.
+var ErrPageCapReached = errors.New("page cap reached before the feed was exhausted")
+
 type FeedCandle struct {
 	Base        string `json:"base"`
 	BucketStart numStr `json:"bucketStart"`
@@ -165,7 +178,10 @@ func (c *Client) CandlesM1(ctx context.Context, feedURL, base string, from int64
 			return all, nil
 		}
 	}
-	return all, nil
+	// Every page came back full, so the feed still has newer candles the caller
+	// asked for and did not get.
+	return all, fmt.Errorf("%s M1 candles: %w (%d rows over %d pages)",
+		base, ErrPageCapReached, len(all), maxPages)
 }
 
 // ---- replay series -------------------------------------------------------
@@ -318,5 +334,6 @@ func (c *Client) PricePoints(ctx context.Context, feedURL, base string, from int
 			return all, nil
 		}
 	}
-	return all, nil
+	return all, fmt.Errorf("%s price points: %w (%d rows over %d pages)",
+		base, ErrPageCapReached, len(all), maxPages)
 }

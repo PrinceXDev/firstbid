@@ -222,7 +222,11 @@ func (s *server) live(w http.ResponseWriter, r *http.Request) {
 		// acts on. Displaying the raw diffusion estimate would make the
 		// dashboard disagree with the strategy it is reporting.
 		row.Fair = cmap.Apply(rawFair)
-		row.Residual = cmap.Residual(rawFair)
+		// The floor the engine actually applies, not the bare map residual. The
+		// shipped map is empty, so its residual is zero, and a dashboard reading
+		// it directly would print TAKE for edges production refuses. EdgeFloor
+		// is the one definition of that bound, so the two cannot drift apart.
+		row.Residual = model.EdgeFloor(rawFair)
 		row.Uncertainty = model.Uncertainty(sp.Price, row.Open, sigma, secs, 15)
 
 		// Ask the engine's own logic what it would do, rather than restating it

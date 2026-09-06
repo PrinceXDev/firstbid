@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -33,6 +34,11 @@ type pred struct {
 	// inputs retained so sigma can be refitted without refetching
 	spot, open, sigma, secsLeft float64
 	expiry                      int64
+	// window identifies the resolved market this row came from. Every fraction
+	// of one window shares a single outcome, so the train/test boundary has to
+	// fall BETWEEN windows: cutting through one would let the same outcome both
+	// fit the calibration and score it.
+	window int
 }
 
 func main() {
@@ -82,22 +88,49 @@ func main() {
 			earliest = o.TradingStart
 		}
 	}
+	if earliest == int64(math.MaxInt64) {
+		// No observation carried a trading start; fall back to the requested
+		// window rather than handing MaxInt64 to the feed and to time.Unix.
+		earliest = since
+	}
 	// Both builders stamp each observation with the time it became knowable, so
 	// SpotSeries.At can never hand back a price from after the decision moment.
 	// "points" replays the very table the live engine polls; "candles" is the
 	// cheaper, coarser series kept for cross-checking.
+	// Page caps are derived from the window actually requested rather than
+	// hard-coded, so a longer -window cannot quietly return a shorter replay.
+	// Both feeds page 1,000 rows at a time; the spare pages absorb gaps and the
+	// time that passes between computing `earliest` and finishing the walk.
+	span := time.Since(time.Unix(earliest, 0))
+	if span < *window {
+		span = *window
+	}
+	pointPages := int(span.Seconds()/1000) + 16  // ~1 point per second
+	candlePages := int(span.Minutes()/1000) + 16 // 1 candle per minute
+
 	fmt.Printf("loading index prices (%s, %s)... ", *feedMode, window.String())
 	series := map[string]venue.SpotSeries{}
 	for _, a := range []string{"BTC", "ETH"} {
 		if *feedMode == "points" {
-			ps, err := c.PricePoints(ctx, feed, a, earliest, 400)
+			ps, err := c.PricePoints(ctx, feed, a, earliest, pointPages)
 			if err != nil {
+				// A truncated series is not a degraded run, it is a different
+				// run wearing this one's label: the newest history is missing
+				// while every printed number still claims the full window.
+				if errors.Is(err, venue.ErrPageCapReached) {
+					log.Fatalf("%s price points: %v -- the replay would be silently short; "+
+						"shorten -window or raise the page cap", a, err)
+				}
 				log.Printf("%s price points: %v", a, err)
 			}
 			series[a] = venue.BuildSpotSeriesFromPoints(ps)
 		} else {
-			cs, err := c.CandlesM1(ctx, feed, a, earliest, 40)
+			cs, err := c.CandlesM1(ctx, feed, a, earliest, candlePages)
 			if err != nil {
+				if errors.Is(err, venue.ErrPageCapReached) {
+					log.Fatalf("%s candles: %v -- the replay would be silently short; "+
+						"shorten -window or raise the page cap", a, err)
+				}
 				log.Printf("%s candles: %v", a, err)
 			}
 			series[a] = venue.BuildSpotSeries(cs)
@@ -108,7 +141,7 @@ func main() {
 
 	var preds []pred
 	var skipped int
-	for _, o := range obs {
+	for wi, o := range obs {
 		s, ok := series[o.Asset]
 		if !ok || o.TradingStart <= 0 || o.Expiry <= o.TradingStart {
 			skipped++
@@ -143,6 +176,7 @@ func main() {
 				sigma:    sigma,
 				secsLeft: secsLeft,
 				expiry:   o.Expiry,
+				window:   wi,
 			})
 		}
 	}
@@ -160,12 +194,31 @@ func main() {
 	// Chronological split: fit the multiplier on the older half only, then
 	// evaluate on the newer half the fit has never seen. Fitting and scoring on
 	// the same rows would make any k look good.
-	sort.Slice(preds, func(i, j int) bool { return preds[i].expiry < preds[j].expiry })
-	cut := len(preds) / 2
+	//
+	// The boundary is placed between WINDOWS, not between rows. Each window
+	// contributes one row per sampled fraction, all carrying that window's
+	// single outcome; a row-level cut at len/2 would put some of a window's
+	// rows in train and the rest in test, so the same coin flip would both fit
+	// the calibration and appear in the score that is supposed to hold it to
+	// account. That is a leak, and a leak flatters exactly the number this
+	// command exists to keep honest.
+	sort.SliceStable(preds, func(i, j int) bool {
+		if preds[i].expiry != preds[j].expiry {
+			return preds[i].expiry < preds[j].expiry
+		}
+		return preds[i].window < preds[j].window
+	})
+	cut := splitAtWindowBoundary(preds, len(preds)/2)
 	train, test := preds[:cut], preds[cut:]
+	if len(train) == 0 || len(test) == 0 {
+		fmt.Println()
+		fmt.Println("not enough distinct resolved windows for a leak-free train/test split")
+		return
+	}
 	kTrain := fitK(train)
 	fmt.Println()
-	fmt.Printf("train/test split: %d train (older) / %d test (newer)", len(train), len(test))
+	fmt.Printf("train/test split: %d train (older) / %d test (newer), split on whole windows",
+		len(train), len(test))
 	fmt.Println()
 	fmt.Printf("k fitted on TRAIN only = %.3f", kTrain)
 	fmt.Println()
@@ -216,14 +269,22 @@ func main() {
 		fmt.Println()
 		fmt.Printf("  Brier raw      : %.4f  (skill %+.2f%%)\n", rawB, 100*(1-rawB/0.25))
 		fmt.Printf("  Brier mapped   : %.4f  (skill %+.2f%%)\n", calB, 100*(1-calB/0.25))
+		// FB_MAP writes these knots straight into the source the engine prices
+		// through, so the export is gated on the same test that decides whether
+		// the map ships at all. Otherwise the documented regeneration command
+		// would promote a rejected experiment into production, which is the
+		// dishonesty this command exists to prevent.
 		if calB < rawB {
 			fmt.Printf("  the map earns its place: %.1f%% lower Brier out of sample\n",
 				100*(1-calB/rawB))
+			if err := exportMap(os.Getenv("FB_MAP"), cmap); err != nil {
+				log.Printf("export map: %v", err)
+			}
 		} else {
 			fmt.Printf("  the map does NOT improve out of sample; do not ship it\n")
-		}
-		if err := exportMap(os.Getenv("FB_MAP"), cmap); err != nil {
-			log.Printf("export map: %v", err)
+			if os.Getenv("FB_MAP") != "" {
+				fmt.Printf("  FB_MAP is set but NOT written: refusing to ship a map that lost its own test\n")
+			}
 		}
 	}
 
@@ -251,6 +312,30 @@ func main() {
 			fmt.Println()
 		}
 	}
+}
+
+// splitAtWindowBoundary moves `want` to the nearest index where the window
+// changes, so no resolved market straddles the train/test boundary.
+//
+// ps must already be grouped by window (the chronological sort above keeps each
+// window's rows contiguous). It walks forward to the next boundary, and if that
+// would leave nothing to test on, walks backward instead.
+func splitAtWindowBoundary(ps []pred, want int) int {
+	if want <= 0 || want >= len(ps) {
+		return want
+	}
+	fwd := want
+	for fwd < len(ps) && ps[fwd].window == ps[fwd-1].window {
+		fwd++
+	}
+	if fwd < len(ps) {
+		return fwd
+	}
+	back := want
+	for back > 0 && ps[back].window == ps[back-1].window {
+		back--
+	}
+	return back
 }
 
 // reliability buckets predictions and compares them to realised frequency.

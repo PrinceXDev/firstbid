@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -315,7 +314,7 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 		fair := cmap.Apply(rawFair)
 		// The floor a take must clear: the model's measured calibration error,
 		// widened by the fitted map's residual if a validated map is shipped.
-		resid := math.Max(model.CalibrationError, cmap.Residual(rawFair))
+		resid := model.EdgeFloor(rawFair)
 		// The risk horizon is how long we are exposed before we can requote,
 		// not the whole window: one tick plus a round trip.
 		unc := model.Uncertainty(sp.Price, open, sigma, secsLeft, interval.Seconds()+3)
@@ -361,9 +360,10 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 			if tk.BuyDn {
 				limit = tk.Price - 0.005
 			}
+			cost := collateralCost(kind, limit)
 			// The pricing decision says the book is wrong. The budget decides
 			// whether we are allowed to act on it again in this window.
-			if ok, why := budget.Allow(time.Now(), limit, e.Params.Size); !ok {
+			if ok, why := budget.Allow(time.Now(), cost, e.Params.Size); !ok {
 				spent, notional := budget.Spent()
 				e.Log.Printf("[%s] t-%3.0fs fair=%.3f book=%.3f/%.3f  TAKE REFUSED %s"+
 					" (edge=%.3f, spent %d takes / %.2f)",
@@ -375,7 +375,7 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 				e.bump(func(s *Stats) { s.Takes++ })
 				if id := e.emitTyped(ctx, im, m, bp, label, kind, limit, expireNsFor(m, interval),
 					venue.TypeMarket, decision{"take", fair, sp.Price, open, secsLeft}); id != nil {
-					budget.Record(time.Now(), limit, e.Params.Size)
+					budget.Record(time.Now(), cost, e.Params.Size)
 				}
 				continue
 			}
@@ -607,6 +607,23 @@ func expireNsFor(m *venue.Market, interval time.Duration) uint64 {
 
 // decision is the model state that justified one order, carried so the ledger
 // can attribute profit to a belief rather than just tally cash.
+// collateralCost converts a YES-axis wire price into the collateral actually
+// paid per contract for a given side.
+//
+// Limits, book touches and fair values all live on the YES axis, but a BUY_DN
+// at YES price p is a NO contract costing 1-p. The risk budget is denominated
+// in money, so it must see the second number: charging the YES price for a Down
+// take overstates it whenever YES is expensive -- a take at 0.90 would consume
+// 0.90 of budget for something that cost 0.10 -- and the window would then
+// refuse later takes it could afford. record() applies the same conversion for
+// the ledger; this keeps the two accounts describing the same trade.
+func collateralCost(kind venue.OrderKind, yesPrice float64) float64 {
+	if kind == venue.BuyNo || kind == venue.SellNo {
+		return 1 - yesPrice
+	}
+	return yesPrice
+}
+
 type decision struct {
 	mode     string
 	fair     float64
@@ -624,10 +641,7 @@ func (e *Engine) record(ctx context.Context, in Intent, res *venue.PlaceResult) 
 	// Orders are priced in YES terms on the wire, but the ledger needs what we
 	// actually PAID. A BUY_DN at YES price p costs 1-p for a Down contract.
 	toCost := func(yesPrice float64) float64 {
-		if in.Kind == venue.BuyNo || in.Kind == venue.SellNo {
-			return 1 - yesPrice
-		}
-		return yesPrice
+		return collateralCost(in.Kind, yesPrice)
 	}
 
 	if e.Ledger != nil {

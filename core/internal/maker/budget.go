@@ -43,6 +43,9 @@ func NewTakeBudget(p Params) *TakeBudget {
 // Allow reports whether one more take of `size` contracts at `price` is within
 // budget, and if not, why. The reason is logged rather than swallowed: what the
 // engine refuses to do is as much a result as what it does.
+//
+// `price` is COLLATERAL per contract, not the YES-axis wire price: a BUY_DN at
+// YES price p costs 1-p, and the caller converts before calling.
 func (b *TakeBudget) Allow(now time.Time, price, size float64) (bool, string) {
 	if b == nil {
 		return true, ""
@@ -65,6 +68,7 @@ func (b *TakeBudget) Allow(now time.Time, price, size float64) (bool, string) {
 
 // Record books a take against the budget. Call it only when an order was
 // actually sent, so a rejected intent does not consume the window's risk.
+// `price` is collateral per contract, as in Allow.
 func (b *TakeBudget) Record(now time.Time, price, size float64) {
 	if b == nil {
 		return

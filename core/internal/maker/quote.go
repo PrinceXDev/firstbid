@@ -5,7 +5,10 @@
 // matched Up/Down pair always redeems to exactly 1.00 regardless of who wins.
 package maker
 
-import "math"
+import (
+	"math"
+	"time"
+)
 
 // Params bound how aggressive the quoter is allowed to be.
 type Params struct {
@@ -32,6 +35,16 @@ type Params struct {
 	TakeEdge float64
 	// Size is the per-side order size in contracts.
 	Size float64
+
+	// MaxTakesPerMarket caps how many times one window may be crossed. Takes
+	// inside a window are perfectly correlated -- they settle against the same
+	// outcome -- so N takes on one belief is one bet at N times the size.
+	MaxTakesPerMarket int
+	// MaxTakeNotional caps the collateral committed to taking in one window.
+	MaxTakeNotional float64
+	// TakeCooldown is the minimum gap between takes in the same window, so a
+	// book that stays mispriced for a minute cannot be crossed every tick.
+	TakeCooldown time.Duration
 }
 
 func DefaultParams() Params {
@@ -46,6 +59,13 @@ func DefaultParams() Params {
 		CertaintyBound:  0.005,
 		TakeEdge:        0.020,
 		Size:            5,
+
+		// Sized from the 2026-09-03 post-mortem: the loss was not one bad take,
+		// it was the same take eight times. Two crossings per window, at most
+		// 15 collateral, no faster than one per 45s.
+		MaxTakesPerMarket: 2,
+		MaxTakeNotional:   15,
+		TakeCooldown:      45 * time.Second,
 	}
 }
 
@@ -139,11 +159,17 @@ type Take struct {
 
 // ShouldTake compares fair value against the live touch.
 //
-// bestBid/bestAsk are in Up terms; pass 0 for an empty side.
-// The edge must clear both TakeEdge and the model's own uncertainty, so a noisy
-// estimate can never talk us into crossing.
-func ShouldTake(fair, uncertainty, bestBid, bestAsk float64, p Params) Take {
-	floor := math.Max(p.TakeEdge, uncertainty)
+// bestBid/bestAsk are in Up terms; pass 0 for an empty side. `fair` must be the
+// CALIBRATED probability and `residual` the calibration map's own error at that
+// probability.
+//
+// The edge must clear three floors: a fixed minimum, the model's forward-looking
+// uncertainty, and its measured calibration residual. The third one is the fix
+// for the 2026-09-03 loss. The engine crossed at a believed 0.96 for a 0.03
+// edge while its measured error at 0.96 was 0.14 -- the edge was noise wearing a
+// confident number. An edge smaller than the model's own error is not an edge.
+func ShouldTake(fair, uncertainty, residual, bestBid, bestAsk float64, p Params) Take {
+	floor := math.Max(p.TakeEdge, math.Max(uncertainty, residual))
 
 	// The book is offering Up below what we think it is worth: buy Up.
 	if bestAsk > 0 && fair-bestAsk > floor {

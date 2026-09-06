@@ -19,9 +19,18 @@ replay of something that was real.** Demo Mode replays *recorded live sessions*,
 never synthetic data. That is a harder constraint than mocking, and it is the
 reason the product will feel different.
 
-It also means the interface has to be honest about our current result: the model
-is calibrated, and the strategy is *losing money to adverse selection*. Which
-turns out to be the most interesting thing we can show.
+It also means the interface has to be honest about our current result. The first
+live run lost 37% of deployed capital, and the interface has to say so.
+
+**Note, 2026-09-03:** an earlier draft of this document diagnosed that loss as
+adverse selection. That was wrong. Edge stayed positive while selection went to
+−41.44, which is the signature of a *mistaken belief*, not of being picked off —
+and the mistaken belief traced to a look-ahead bug in our own backtest that made
+the model overconfident. See [`AUTOPSY.md`](AUTOPSY.md).
+
+The correction is kept here rather than edited away, because it is the same
+mistake the interface is designed to prevent a user from making: reading a
+confident number without its error bar, and inventing a story to explain it.
 
 ---
 

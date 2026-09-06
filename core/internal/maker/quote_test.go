@@ -69,15 +69,15 @@ func TestQuotesStayWithinProbabilityBounds(t *testing.T) {
 func TestTakesOnlyWhenBookIsClearlyWrong(t *testing.T) {
 	p := DefaultParams()
 	// Ask far below fair: buy Up.
-	if tk := ShouldTake(0.80, 0.005, 0.70, 0.72, p); !tk.BuyUp {
+	if tk := ShouldTake(0.80, 0.005, 0, 0.70, 0.72, p); !tk.BuyUp {
 		t.Errorf("should buy Up when ask 0.72 is far below fair 0.80")
 	}
 	// Bid far above fair: Down is cheap.
-	if tk := ShouldTake(0.40, 0.005, 0.50, 0.52, p); !tk.BuyDn {
+	if tk := ShouldTake(0.40, 0.005, 0, 0.50, 0.52, p); !tk.BuyDn {
 		t.Errorf("should buy Down when bid 0.50 is far above fair 0.40")
 	}
 	// Small difference inside our own uncertainty: do nothing.
-	if tk := ShouldTake(0.505, 0.02, 0.49, 0.51, p); tk.Any() {
+	if tk := ShouldTake(0.505, 0.02, 0, 0.49, 0.51, p); tk.Any() {
 		t.Errorf("must not cross on a difference smaller than our uncertainty")
 	}
 }
@@ -85,14 +85,14 @@ func TestTakesOnlyWhenBookIsClearlyWrong(t *testing.T) {
 func TestTakeRespectsUncertaintyNotJustTakeEdge(t *testing.T) {
 	p := DefaultParams()
 	// 0.05 edge clears TakeEdge (0.02) but not an uncertainty of 0.10.
-	if tk := ShouldTake(0.75, 0.10, 0.68, 0.70, p); tk.Any() {
+	if tk := ShouldTake(0.75, 0.10, 0, 0.68, 0.70, p); tk.Any() {
 		t.Error("a noisy estimate must not justify crossing")
 	}
 }
 
 func TestTakeIgnoresEmptySides(t *testing.T) {
 	p := DefaultParams()
-	if tk := ShouldTake(0.90, 0.005, 0, 0, p); tk.Any() {
+	if tk := ShouldTake(0.90, 0.005, 0, 0, 0, p); tk.Any() {
 		t.Error("an empty book offers nothing to take")
 	}
 }
@@ -100,11 +100,11 @@ func TestTakeIgnoresEmptySides(t *testing.T) {
 // Every order kind prices on the same YES scale, verified against the pool.
 func TestTakePriceIsAlwaysInYesTerms(t *testing.T) {
 	p := DefaultParams()
-	up := ShouldTake(0.80, 0.005, 0.70, 0.72, p)
+	up := ShouldTake(0.80, 0.005, 0, 0.70, 0.72, p)
 	if !up.BuyUp || math.Abs(up.Price-0.72) > 1e-9 {
 		t.Errorf("buying Up should lift the ask at 0.72, got %v", up.Price)
 	}
-	dn := ShouldTake(0.40, 0.005, 0.50, 0.52, p)
+	dn := ShouldTake(0.40, 0.005, 0, 0.50, 0.52, p)
 	if !dn.BuyDn || math.Abs(dn.Price-0.50) > 1e-9 {
 		t.Errorf("buying Down should hit the bid at 0.50 in YES terms, got %v", dn.Price)
 	}
@@ -120,7 +120,7 @@ func TestGatesThatMustAlsoBlockATake(t *testing.T) {
 	if !stale.SkipBid || !stale.SkipAsk {
 		t.Fatal("stale spot must skip both sides")
 	}
-	if tk := ShouldTake(0.80, 0.005, 0.70, 0.72, p); !tk.Any() {
+	if tk := ShouldTake(0.80, 0.005, 0, 0.70, 0.72, p); !tk.Any() {
 		t.Fatal("precondition: an edge should exist here")
 	}
 	// The engine consults both, so a stale feed blocks the take.
@@ -136,7 +136,34 @@ func TestGatesThatMustAlsoBlockATake(t *testing.T) {
 	if !capped.SkipBid {
 		t.Error("the long inventory cap must skip the bid side")
 	}
-	if tk := ShouldTake(0.80, 0.005, 0.70, 0.72, p); !tk.BuyUp {
+	if tk := ShouldTake(0.80, 0.005, 0, 0.70, 0.72, p); !tk.BuyUp {
 		t.Error("precondition: this edge is a BUY_UP take")
+	}
+}
+
+// TestShouldTakeClearsCalibrationResidual is the regression test for the take
+// rule that lost money.
+//
+// On 2026-09-03 the engine crossed at a believed fair of 0.96 for roughly a
+// 0.03 edge, 53 times. Its measured calibration error at 0.96 was 0.14. The
+// edge never existed; only the confidence did. A take must clear the model's
+// own error, not merely the fixed TakeEdge.
+func TestShouldTakeClearsCalibrationResidual(t *testing.T) {
+	p := DefaultParams()
+
+	// The exact shape of the losing trade: ask 0.93 against a believed 0.96.
+	const fair, ask, residual = 0.96, 0.93, 0.14
+
+	if tk := ShouldTake(fair, 0.005, 0, 0, ask, p); !tk.BuyUp {
+		t.Fatal("with no residual the old rule should still fire; test setup is wrong")
+	}
+	if tk := ShouldTake(fair, 0.005, residual, 0, ask, p); tk.Any() {
+		t.Errorf("took a %.3f edge against a %.3f measured calibration error",
+			fair-ask, residual)
+	}
+	// A genuine mispricing larger than the residual must still be taken --
+	// the floor raises the bar, it does not close the strategy.
+	if tk := ShouldTake(fair, 0.005, residual, 0, 0.70, p); !tk.BuyUp {
+		t.Error("refused a 0.26 edge that clears a 0.14 residual")
 	}
 }

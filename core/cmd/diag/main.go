@@ -51,7 +51,7 @@ func main() {
 	}
 	s := venue.BuildSpotSeries(cs)
 	fmt.Printf("candles fetched=%d  series keys=%d  (requested from %s)\n",
-		len(cs), len(s), time.Unix(earliest, 0).UTC().Format(time.RFC3339))
+		len(cs), s.Len(), time.Unix(earliest, 0).UTC().Format(time.RFC3339))
 	if len(cs) > 0 {
 		f, _ := cs[0].BucketStart.Float()
 		l, _ := cs[len(cs)-1].BucketStart.Float()

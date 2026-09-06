@@ -86,20 +86,21 @@ showing ~0.024.
 
 > "This is the part we'd want a judge to check.
 >
-> We replayed every resolved window using only what was knowable at the time.
-> The model's one free parameter was fitted on the **older half** of the data,
-> then scored on the **newer half it had never seen** — seven thousand
-> predictions — with no lookahead: every sample sees only the price knowable
-> at that instant.
+> We replayed two thousand one hundred resolved windows using only what was
+> knowable at each moment — on the same one-second index feed the engine trades.
+> The model's one free parameter was fitted on the **older half**, then scored on
+> the **newer half it had never seen**: five thousand predictions.
 >
-> When it says thirty-five percent, it happens thirty-four percent of the time.
-> When it says seventy-five, it happens seventy-three. Brier score of point one
-> four against point two five for a coin flip — **forty-four percent better,
-> out of sample.**
+> Brier score of point one four against point two five for a coin flip —
+> **forty-five percent better, out of sample.** No decile is off by more than
+> two and a half points.
 >
 > And at the moment a window opens, the formula returns exactly zero point five
 > zero zero — against a measured base rate of zero point four nine seven eight.
 > It reproduces a number nobody told it."
+
+*The phrase "on the same feed the engine trades" is not filler — say it. It is
+the difference between this number and the one we had to retract.*
 
 ---
 
@@ -167,6 +168,36 @@ try to get it live. It fires several times an hour.*
 
 ---
 
+## 02:22 – 02:40 · ⭐ The autopsy — the strongest thing we have
+
+**Screen:** the attribution panel showing the negative net, then cut to
+`docs/AUTOPSY.md`, then to the one line in `pricefeed.go`.
+
+> "We traded this model on the live venue and we lost thirty-seven percent.
+>
+> Here's why, and it's the most useful thing we found. Our backtest looked up
+> the index price by minute bucket — and returned the price at the **end** of the
+> minute. Every prediction was made using up to fifty-nine seconds of its own
+> future.
+>
+> That made the model look calibrated, so the fitter chose a volatility half the
+> real one, so the model became overconfident, so the engine crossed the book on
+> confidence that wasn't there. One line of indexing, all the way through to a
+> loss.
+>
+> The attribution is what caught it. Edge stayed **positive** — we really did buy
+> below our own fair value every time. Selection went to minus forty-one. That
+> pattern says the belief was wrong, not the execution.
+>
+> It's fixed, it's regression-tested, and the honest number is forty-five percent
+> instead of fifty-nine."
+
+*Do not rush this and do not apologise through it. Most submissions will show a
+green number they cannot defend. This is a red number with a mechanism, and it is
+the one section a judge cannot ask a harder question about than we already have.*
+
+---
+
 ## 02:40 – 02:55 · Close
 
 **Screen:** back to the calibration panel.
@@ -184,7 +215,7 @@ try to get it live. It fires several times an hour.*
 
 - **Do not rush the reliability curve.** It is the most credible thing in the
   video and most submissions will have nothing like it. Give it its five seconds.
-- **Say the numbers slowly.** 0.4978, 44%, 7,696. They land only if they're clear.
+- **Say the numbers slowly.** 0.4978, 45%, 5,305. They land only if they're clear.
 - Say "**out of sample**" at least twice. A judge who knows statistics is
   listening for exactly that, and its absence is the first thing they'd attack.
 - If the P&L panel is still small or slightly negative, **show it anyway and say

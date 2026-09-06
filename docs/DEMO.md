@@ -158,13 +158,13 @@ try to get it live. It fires several times an hour.*
 > "This is pure Go. No Node, no JavaScript runtime — we drive the contracts
 > directly from the ABIs DreamDEX exports.
 >
-> That turned out to matter. The SDK's documented order-book read returns
-> **empty** for markets that demonstrably have depth — so anything built on it
-> is looking at a dead market. We only saw the real book because we were reading
-> the chain.
+> Going direct meant we had to read the venue ourselves, and that turned up
+> things worth reporting: the oracle's price scale changes between questions
+> with nothing to tell you which one you have, and the documented price
+> convention for the NO side is the inverse of the actual behaviour.
 >
-> We've written that up, with seven other reproducible findings, as a feedback
-> report for the DreamDEX team."
+> We've written those up as a feedback report — along with a bug we reported and
+> then had to retract, because it turned out to be ours."
 
 ---
 

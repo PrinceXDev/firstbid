@@ -79,6 +79,8 @@ func main() {
 	http.Handle("/api/calibration", devCORS(http.HandlerFunc(s.calibration)))
 	http.Handle("/api/live", devCORS(http.HandlerFunc(s.live)))
 	http.Handle("/api/pnl", devCORS(http.HandlerFunc(s.pnl)))
+	http.Handle("/api/traces", devCORS(http.HandlerFunc(s.traces)))
+	http.Handle("/api/trace/", devCORS(http.HandlerFunc(s.trace)))
 
 	log.Printf("firstbid dashboard on http://localhost%s  (net=%s)", *addr, *net_)
 	log.Fatal(http.ListenAndServe(*addr, nil))
@@ -306,4 +308,40 @@ func uiHandler() http.Handler {
 		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+// traces lists the settled windows worth replaying, newest first.
+func (s *server) traces(w http.ResponseWriter, r *http.Request) {
+	if s.ledger == nil {
+		writeJSON(w, map[string]any{"marketIds": []string{}})
+		return
+	}
+	ids, err := s.ledger.ListTraceable(r.Context(), 60)
+	if err != nil {
+		http.Error(w, `{"error":"ledger read failed"}`, http.StatusInternalServerError)
+		return
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	writeJSON(w, map[string]any{"marketIds": ids})
+}
+
+// trace returns one window's full decision history for replay.
+func (s *server) trace(w http.ResponseWriter, r *http.Request) {
+	if s.ledger == nil {
+		http.Error(w, `{"error":"no ledger configured"}`, http.StatusNotFound)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/trace/")
+	if id == "" {
+		http.Error(w, `{"error":"missing market id"}`, http.StatusBadRequest)
+		return
+	}
+	t, err := s.ledger.GetTrace(r.Context(), id)
+	if err != nil {
+		http.Error(w, `{"error":"no such window in the ledger"}`, http.StatusNotFound)
+		return
+	}
+	writeJSON(w, t)
 }

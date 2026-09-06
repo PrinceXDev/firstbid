@@ -11,31 +11,32 @@ mainnet (5031) · measurements taken 2026-09-03.
 
 ---
 
-## 1. `getBinaryOrderBook()` returns an empty book while the pool has depth
+## 1. ~~`getBinaryOrderBook()` returns an empty book~~ — RETRACTED
 
-**Severity: high — silently wrong, not an error.**
+**This finding was wrong, and the bug was ours.**
 
-Reading the same live markets at the same moment through two paths gives
-contradictory answers:
+We reported that the SDK's documented order-book read returned empty for live
+markets that demonstrably had depth, and rated it high severity. It does not.
 
-| Read path | Result across 12 live markets |
-| --- | --- |
-| `client.getBinaryOrderBook(pool)` (documented) | **12/12 completely empty** |
-| `BinaryPool.getBookLevels(isBid, n)` (on-chain) | **11/12 two-sided, 2–4 levels a side, ~0.028 spread** |
+`BinaryOrderBook` exposes **`yesBids` / `yesAsks` / `noBids` / `noAsks`**. Our
+probe read `book.bids` and `book.asks`, which are `undefined`, took `.length` of
+an empty fallback, and concluded every book was empty. Reading the correct
+fields against the same markets:
 
-Reproduction: take any market from `listLiveBinaryMarkets`, gate on
-`getMarketOnchain().status == 1`, then read the book both ways.
+```
+tradable=10  empty=0  two-sided=9
+BTC/60m   4b/3a  best 0.831 / 0.856
+ETH/60m   3b/3a  best 0.555 / 0.584
+```
 
-Why it matters: the SDK is the only supported surface for Event Contracts (the
-HTTP API is spot-only), so anything built on the documented path renders an
-empty market and cannot price, quote or take. An application looking at a dead
-book has no way to tell that the venue is actually liquid.
+The SDK agrees with the chain. We apologise for the noise, and we are leaving
+the retraction here rather than deleting the section, because the original claim
+was made publicly in this document.
 
-**Suggested fix:** either back `getBinaryOrderBook` with the pool's
-`getBookLevels`, or document that it reflects indexer-materialised state which
-is not populated for binary pools, and point callers at the chain read.
-
----
+One small suggestion survives it: the four-sided field names are the right
+design, but `bids`/`asks` are the names a caller coming from `fetchOrderBook`
+reaches for first. A runtime warning, or simply naming them in the Recipes
+snippet that reads a book, would have saved us a day and a wrong bug report.
 
 ## 2. The oracle's `numericValue` scale varies between questions
 

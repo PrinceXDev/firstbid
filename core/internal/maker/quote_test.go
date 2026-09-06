@@ -3,6 +3,7 @@ package maker
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func TestQuoteStraddlesFairValue(t *testing.T) {
@@ -165,5 +166,89 @@ func TestShouldTakeClearsCalibrationResidual(t *testing.T) {
 	// the floor raises the bar, it does not close the strategy.
 	if tk := ShouldTake(fair, 0.005, residual, 0, 0.70, p); !tk.BuyUp {
 		t.Error("refused a 0.26 edge that clears a 0.14 residual")
+	}
+}
+
+// An unchanged quote must not be cancelled and replaced: that is two cancels
+// and two placements of gas for no change to the book.
+func TestRestingQuoteHeldWhenUnchanged(t *testing.T) {
+	const tick = 0.001
+	now := time.Now()
+	exp := now.Add(5 * time.Minute)
+	var r restingQuote
+
+	q := Quote{BidUp: 0.480, AskUp: 0.520}
+	if r.matches(q, tick, now) {
+		t.Error("nothing is resting yet, so nothing can match")
+	}
+	r.set(q, tick, exp)
+	if !r.matches(Quote{BidUp: 0.480, AskUp: 0.520}, tick, now) {
+		t.Error("an identical quote must be held, not replaced")
+	}
+	if r.matches(Quote{BidUp: 0.478, AskUp: 0.520}, tick, now) {
+		t.Error("a move of two ticks is a different quote and must be replaced")
+	}
+	r.clear()
+	if r.matches(q, tick, now) {
+		t.Error("after cancelling, nothing is resting")
+	}
+}
+
+// Two prices closer than one tick can still round to DIFFERENT ticks. Comparing
+// raw distance would hold an order that sits at the wrong price.
+func TestPricesAcrossARoundingBoundaryAreNotAMatch(t *testing.T) {
+	const tick = 0.001
+	now := time.Now()
+	var r restingQuote
+	// 0.4504 snaps to 0.450; 0.4506 snaps to 0.451. They differ by 0.0002.
+	r.set(Quote{BidUp: 0.4504, AskUp: 0.520}, tick, now.Add(5*time.Minute))
+	if r.matches(Quote{BidUp: 0.4506, AskUp: 0.520}, tick, now) {
+		t.Error("prices that snap to different ticks must not be treated as unchanged")
+	}
+	// Same side of the boundary: genuinely the same order.
+	if !r.matches(Quote{BidUp: 0.4501, AskUp: 0.520}, tick, now) {
+		t.Error("prices that snap to the same tick are the same order")
+	}
+}
+
+// An order that has aged off the book is not resting. Holding past its expiry
+// would leave the market unquoted until something else moved the quote.
+func TestRestingQuoteExpires(t *testing.T) {
+	const tick = 0.001
+	now := time.Now()
+	var r restingQuote
+	q := Quote{BidUp: 0.480, AskUp: 0.520}
+	r.set(q, tick, now.Add(30*time.Second))
+
+	if !r.matches(q, tick, now) {
+		t.Error("a fresh quote should hold")
+	}
+	if r.matches(q, tick, now.Add(25*time.Second)) {
+		t.Error("must stop holding before the orders actually expire")
+	}
+	if r.matches(q, tick, now.Add(2*time.Minute)) {
+		t.Error("must never hold past expiry")
+	}
+}
+
+// Even an unchanged quote must periodically fall through to a full requote, so
+// the engine re-reads the pool instead of trusting its memory forever.
+func TestRestingQuoteForcesPeriodicReverification(t *testing.T) {
+	const tick = 0.001
+	now := time.Now()
+	var r restingQuote
+	q := Quote{BidUp: 0.480, AskUp: 0.520}
+	r.set(q, tick, now.Add(1*time.Hour))
+
+	held := 0
+	for i := 0; i < maxHolds+2; i++ {
+		if !r.matches(q, tick, now) {
+			break
+		}
+		r.hold()
+		held++
+	}
+	if held != maxHolds {
+		t.Errorf("held %d times before re-verifying, want %d", held, maxHolds)
 	}
 }

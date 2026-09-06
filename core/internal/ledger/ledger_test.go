@@ -195,3 +195,39 @@ func TestDownSideCostsAreRecordedInDownTerms(t *testing.T) {
 		t.Errorf("net = %v, want 0.062", a.Net)
 	}
 }
+
+// Attribution for one window must not depend on how much else is in the ledger.
+func TestAttributeMarketIsScopedToOneWindow(t *testing.T) {
+	d := open(t)
+	ctx := context.Background()
+	for _, id := range []string{"a", "b", "c"} {
+		_ = d.UpsertWindow(ctx, WindowRow{MarketID: id, Label: "BTC/5m", Asset: "BTC", IntervalSec: 300, Expiry: 1})
+		mustFill(t, d, FillRow{MarketID: id, Kind: "BUY_UP", Price: 0.4, Quantity: 2, Fair: 0.5})
+		_ = d.Settle(ctx, id, 0, false, 1, 2)
+	}
+
+	got, err := d.AttributeMarket(ctx, "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("want an attribution for window b")
+	}
+	if got.MarketID != "b" {
+		t.Errorf("MarketID = %q, want b", got.MarketID)
+	}
+	if got.Fills != 1 || math.Abs(got.Contracts-2) > 1e-9 {
+		t.Errorf("scoped attribution picked up other windows: %+v", got)
+	}
+}
+
+func TestAttributeMarketReturnsNilForUnknownWindow(t *testing.T) {
+	d := open(t)
+	got, err := d.AttributeMarket(context.Background(), "nope")
+	if err != nil {
+		t.Fatalf("unknown window should not error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("want nil for a window with no settled fills, got %+v", got)
+	}
+}

@@ -360,9 +360,10 @@ Four theses were killed by data during this build. The first three were product
 ideas, checked against the venue rather than assumed. The fourth was our own
 headline result.
 
-1. *"The books are empty, so supply liquidity."* — Books have depth. The
-   **official SDK reports them as empty**; the chain does not. (Finding #1 in the
-   feedback report.)
+1. *"The books are empty, so supply liquidity."* — Books have depth, on both the
+   chain and the SDK. Our probe had been reading the wrong fields
+   (`book.bids` on a type that exposes `yesBids`), so we spent a day believing a
+   defect that did not exist. Retracted in the feedback report.
 2. *"Winnings go unredeemed."* — 99.4% get claimed. A promising 23.7% figure
    turned out to be an artifact of a 1000-row query cap.
 3. *"We can simply quote tighter than the incumbents."* — Not mid-window we
@@ -390,10 +391,15 @@ measurable, and that is the next piece of work.
 
 ## Feedback to the DreamDEX team
 
-[`docs/SDK-FEEDBACK.md`](docs/SDK-FEEDBACK.md) documents eight reproducible
-findings, including a high-severity one where the documented order-book read
-returns empty for markets that demonstrably have depth, and a price-convention
-discrepancy that causes NO-side orders to rest at their mirror price.
+[`docs/SDK-FEEDBACK.md`](docs/SDK-FEEDBACK.md) documents seven reproducible
+findings — chief among them that the oracle's `numericValue` scale varies
+between questions with no field to tell you which, and a price-convention
+discrepancy in the docs that causes NO-side orders to rest at their mirror
+price.
+
+It also carries a retraction. We originally reported a high-severity bug in the
+SDK's order-book read; that turned out to be our own field-name error, and the
+retraction stays in the document rather than being deleted.
 
 Also included: what worked well, because plenty did — the settlement rail, the
 500 exported error signatures, and mint-a-pair are all genuinely good design.

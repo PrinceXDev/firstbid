@@ -10,12 +10,20 @@ runtime — the contracts are driven directly from the ABIs DreamDEX publishes.
 The TypeScript SDK is the documented surface, and we started there. Two things
 pushed us off it:
 
-1. **`getBinaryOrderBook()` returns empty for live markets that demonstrably have
-   depth.** We only discovered this because we had a second implementation to
-   compare against. Anything reading the book through the documented call sees a
-   dead venue. (See `docs/SDK-FEEDBACK.md` #1.)
-2. A quoting engine wants one goroutine per market window with a hard deadline,
-   and one serialised writer. Go models that in the type system.
+1. A quoting engine wants one goroutine per market window with a hard deadline,
+   and exactly one serialised writer. Go models that in the type system, and the
+   lifetime of a `context.WithDeadline` maps exactly onto the lifetime of a
+   trading window.
+2. It was a deliberate choice by the project owner, made with the cost known.
+
+An earlier version of this document gave a third reason: that the SDK's
+order-book read returned empty for live markets. **That was our own bug** — we
+read `book.bids` on a type that exposes `yesBids`/`yesAsks`. The SDK is fine.
+See the retraction at the top of `docs/SDK-FEEDBACK.md`.
+
+The honest summary is that pure Go was a preference rather than a necessity. It
+cost roughly two days and produced something the ecosystem did not have: a
+working Go client for Event Contracts.
 
 The cost was real — roughly two days rebuilding grid snapping, revert decoding
 and the read layer — and the docs explicitly invite it ("Working from a non-JS
@@ -30,7 +38,7 @@ stack? …exports the ABIs you need directly"). The byproduct is
 | --- | --- | --- |
 | Which windows exist | indexer GraphQL | Only place that enumerates markets |
 | Market status, pool, token ids, expiry | **chain** | Indexer status lags by seconds; an order to a Locked market reverts |
-| Order book | **chain** (`getBookLevels`) | The documented SDK read returns empty |
+| Order book | **chain** (`getBookLevels`) | One pinned block for both sides, so a crossed book cannot be an artifact of two reads |
 | Tick / lot / min size | **chain** | Indexer returns `null` for binary markets |
 | Our resting orders | **chain** (`getOwnOpenOrders`) | Ids parsed from receipts proved unreliable |
 | Index spot price | price-feed GraphQL | ~1.8s fresh |

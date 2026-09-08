@@ -8,11 +8,17 @@ Somnia × DreamDEX Event Contracts Hackathon submission.
 
 ## The one-line version
 
-DreamDEX opens ~770 event-contract markets a day. Only **19.2%** of them ever
-trade, and the quotes that do exist are flat ±0.014 ladders that ignore how
-certain the outcome actually is. Firstbid prices every window against a model
-validated out-of-sample on the same 1-second index feed it trades, quotes it
-correctly, and takes the book when the book is wrong.
+Event-contract quotes on DreamDEX are flat ladders that ignore how certain the
+outcome actually is. Firstbid prices every window against a model validated
+out-of-sample on the same 1-second index feed it trades, quotes it correctly,
+and takes the book when the book is wrong.
+
+The harder half is knowing **which** windows it may price at all. The model
+refuses any cadence it has not validated — and that refusal, honestly measured,
+turned out to be excluding **97.9% of the venue's trades**. So we measured σ a
+second way, from the index price process rather than the venue's settlement log,
+and extended coverage exactly as far as the evidence reached: one cadence
+admitted, three still refused. See [`docs/COVERAGE.md`](docs/COVERAGE.md).
 
 It is running on Somnia Shannon right now, and it fills.
 
@@ -50,6 +56,15 @@ directly from the public indexer and the chain on 2026-09-03.
 | Winning positions redeemed | 99.4% (25,496 of 25,660) | `OutcomeBalance` |
 | Voided markets observed | 0 of ~800 | indexer |
 
+> **The venue reshaped, and these figures are dated rather than wrong.** Five
+> days later, on 2026-09-08, `cmd/surface` censused the live book and found
+> **8 live markets**, not a wide thin cross-section: few, long-dated, and
+> heavily traded, with 97.9% of trades on cadences this engine was refusing.
+> The measurements above still describe the venue of 2026-09-03 and are kept
+> for that reason. The row that matters most — P(Up) = 0.4978 over ten thousand
+> settled windows — is a property of the price process and does not move.
+> [`docs/COVERAGE.md`](docs/COVERAGE.md) is the re-measurement.
+
 Two conclusions follow, and they point in opposite directions from where most
 people start.
 
@@ -81,17 +96,25 @@ P(Up) = Φ( ln(spot / open) / (σ_min · √minutes_remaining) )
 No directional view is taken or implied. σ is measured per asset and cadence
 from resolved history, never assumed:
 
-| Series | n | P(Up) | σ/min |
-| --- | ---: | ---: | ---: |
-| BTC/5m | 512 | 0.4746 | 0.000513 |
-| BTC/15m | 2,880 | 0.4997 | 0.000504 |
-| BTC/60m | 720 | 0.5083 | 0.000517 |
-| ETH/5m | 470 | 0.4936 | 0.000683 |
-| ETH/15m | 2,880 | 0.5083 | 0.000681 |
-| ETH/60m | 720 | 0.5111 | 0.000707 |
+| Series | n | P(Up) | σ/min | evidence |
+| --- | ---: | ---: | ---: | --- |
+| BTC/5m | 512 | 0.4746 | 0.000513 | resolved windows |
+| BTC/15m | 2,880 | 0.4997 | 0.000504 | resolved windows |
+| BTC/60m | 720 | 0.5083 | 0.000517 | resolved windows |
+| BTC/240m | 177 | — | 0.000560 | **horizon-scaled** |
+| ETH/5m | 470 | 0.4936 | 0.000683 | resolved windows |
+| ETH/15m | 2,880 | 0.5083 | 0.000681 | resolved windows |
+| ETH/60m | 720 | 0.5111 | 0.000707 | resolved windows |
 
 σ/min is stable within an asset across a 12× range of window lengths. That is
 the √t scaling the model assumes, **measured rather than asserted**.
+
+The BTC/240m row is the one entry not fitted from resolved venue windows,
+because the venue has never settled enough 4-hour windows to fit one. Its `n` is
+177 *non-overlapping 4-hour index returns*, not 177 settled markets — which is
+why `Vol` now carries a `Source` field, so the provenance travels with the
+number. [`docs/COVERAGE.md`](docs/COVERAGE.md) is how it was measured and why
+only the horizon *ratio* was imported rather than the absolute level.
 
 ### Validation — this is the part that matters
 
@@ -176,9 +199,27 @@ not a bug: the longer sample averages more of it. We ship the higher value,
 because a larger σ means less confident probabilities, and overconfidence is the
 specific failure that cost us 37%. Under-confidence only forgoes trades.
 
-**We refuse to quote what we have not validated.** 240-minute and 1440-minute
-windows have no resolved history to fit, so the engine skips them rather than
-extrapolating √t four times further than it was tested.
+**We refuse to quote what we have not validated — and we were wrong about what
+counts as validation.** Long-dated windows have no resolved venue history to fit,
+so the engine skipped them rather than extrapolating √t four times further than
+it was tested. The refusal was right. Its stated reason was too strong: "no
+resolved venue history" is not "no evidence," because σ is a property of the
+index price process and the settlement log is only one way to observe it.
+
+A census of the live book found what the overreach cost — **187 of 191 trades
+(97.9%) and ~99% of quote volume on the cadences we were refusing**, and **411 of
+429 legs (95.8%) across 72 complete polls** resting on a cadence we had no
+opinion about. Depth is not the argument: nearly all of it sits on the one
+cadence that stays refused. So `cmd/volscale` measures σ from
+30 days of M1 candles using non-overlapping returns, and it agrees with the
+resolved-window fit to within **5.3%** — two independent estimators sharing no
+data and no code path. √t then holds to +11.1% at a 240-minute aggregation for
+BTC, and the same measurement refuses ETH/240m at +18.2% and everything at
+1440m and beyond for want of independent observations.
+
+One cadence admitted, three still refused, and four tests keep it that way. The
+deepest book on the venue is still not quoted: it is not short of a model, it is
+short of evidence. [`docs/COVERAGE.md`](docs/COVERAGE.md).
 
 ---
 
@@ -276,7 +317,7 @@ A maker that guesses pays. Every gate below is enforced before an order is signe
 | Gate | Behaviour |
 | --- | --- |
 | On-chain status | Only `Trading` (1). The indexer's status lags by seconds. |
-| Uncalibrated series | Refused outright — no model, no quote. |
+| Uncalibrated series | Refused outright — no model, no quote. A cadence enters the table only on its own passing measurement; ETH/240m and everything at 1440m and beyond are still refused, including the deepest book on the venue. |
 | Stale index price | Refuses to quote if spot is older than 10s. |
 | Window about to lock | Refuses inside the final 20s. |
 | Inventory caps | Stops quoting the side that would deepen an oversized position. |
@@ -308,6 +349,8 @@ Analysis and verification:
 
 ```bash
 go run ./cmd/calibrate    # fit sigma per asset and cadence
+go run ./cmd/volscale     # sigma from price history + per-horizon sqrt(t) verdict
+go run ./cmd/surface      # live book census: what co-exists, and what is inconsistent
 go run ./cmd/backtest     # replay + out-of-sample reliability (1s feed, 24h)
 go run ./cmd/backtest -feed=points -window=96h   # the figures quoted above
 go run ./cmd/backtest -feed=candles              # coarser M1 cross-check
@@ -330,6 +373,12 @@ core/                    the engine — pure Go, no Node
     firstbid/            the quoting engine
     backtest/            replay + reliability + train/test split
     calibrate/           fit sigma per asset and cadence
+    volscale/            sigma from the index price process, non-overlapping
+                         returns only — blesses or refuses each horizon, and
+                         refused half of what it tested
+    surface/             live book census — classifies every pair of
+                         simultaneous windows, hunts model-free inconsistency,
+                         and prints the verdict that killed its own thesis
     edge/                live model vs live book
     mybook/              our resting orders on the real book
     probe/ sides/        venue read verification
@@ -342,6 +391,9 @@ core/                    the engine — pure Go, no Node
     model/               calibrated fair value
       calibmap.go        isotonic calibration + the measured edge floor
                          (map built, measured, and deliberately not shipped)
+      fair.go            the sigma table — now two kinds of evidence, so every
+                         entry declares its Source and a test fails any that
+                         does not
     maker/               quoting, risk gates, supervisor, executor
       budget.go          per-window take budget — takes inside one window are
                          perfectly correlated, so repeating one is not diversifying
@@ -349,6 +401,9 @@ core/                    the engine — pure Go, no Node
 executor/                TypeScript reference used to cross-check Go behaviour
 docs/
   AUTOPSY.md             the 59-second look-ahead bug: cause, cost, and the fix
+  COVERAGE.md            the 97.9% we were refusing to quote: what the refusal
+                         cost, the second measurement of sigma, and the three
+                         cadences still refused
   SDK-FEEDBACK.md        8 reproducible findings for the DreamDEX team
 ```
 
@@ -356,9 +411,12 @@ docs/
 
 ## A note on method
 
-Four theses were killed by data during this build. The first three were product
+Six theses were killed by data during this build. The first three were product
 ideas, checked against the venue rather than assumed. The fourth was our own
-headline result.
+headline result. The fifth was the successor we were most excited about, and it
+died on the first poll of the tool written to test it. The sixth was one of our
+own safety rules — the only one that turned out to be too strong rather than too
+weak.
 
 1. *"The books are empty, so supply liquidity."* — Books have depth, on both the
    chain and the SDK. Our probe had been reading the wrong fields
@@ -376,16 +434,44 @@ headline result.
    attribution split is what caught it: edge stayed positive while selection
    went to −41.44, which is the signature of a wrong belief rather than bad
    execution. [`docs/AUTOPSY.md`](docs/AUTOPSY.md).
+5. *"Simultaneous windows on one underlying must be mutually consistent, so
+   inconsistency is riskless profit."* — **True, and irrelevant here.** Two
+   windows expiring at the same second with strikes K₁ < K₂ must satisfy
+   P(Up | K₁) ≥ P(Up | K₂) under *every* probability measure, so a crossed
+   ladder would be profit that does not require our model to be right at all.
+   That was the point: it would have escaped the dependency that cost us 37%.
+   `cmd/surface` was built to measure it and found **zero same-expiry pairs
+   across 72 polls that each read every market they discovered**, spanning the
+   top-of-hour boundary where a 15m and a 60m window can coincide. Expiries
+   coincide only at alignment boundaries, and with 8 live markets there is no
+   cross-section to arbitrage. The tool prints that verdict itself and
+   names the surviving idea. The thesis cost two commands rather than two days.
+6. *"Refusing every cadence without resolved venue history is conservative."* —
+   **Killed by the census the dead thesis left behind.** The refusal was right;
+   the reason was too strong, and it was excluding 97.9% of the venue's trades.
+   σ measured from the price process agrees with the resolved-window fit to
+   5.3%, which admitted one cadence and — on the same measurement — refused
+   three more. [`docs/COVERAGE.md`](docs/COVERAGE.md).
 
 The version that survived is the one every check failed to break — including the
-check that broke the previous version.
+check that broke the previous version, and the tool that killed the thesis it
+was written to support.
 
-Two claims we are **not** making. The corrected engine has not yet been run live,
-so there is no before/after P&L pair yet, only replay and unit tests. And
+Four claims we are **not** making. The corrected engine has not yet been run
+live, so there is no before/after P&L pair yet, only replay and unit tests. And
 unconditional reliability does not license taking: a taker only ever trades the
 subset where the book disagrees with it, and calibration *conditional on
 disagreement* is still unmeasured. The indexer's `Order` history makes it
 measurable, and that is the next piece of work.
+
+The two new ones come with coverage. **BTC/240m is priced, not proven** — it is
+gated like every other cadence but has not been quoted live long enough to
+attribute anything, so coverage is a claim about what the model may honestly
+price, not that pricing it made money. And **the deep books may not be
+traders**: the ~50,000-unit quotes resting at exactly `0.495/0.505` on both
+assets, with modest trade counts against very large volume, are consistent with
+seeded venue liquidity. Nothing here should be read as edge against a
+counterparty who will actually take the other side.
 
 ---
 

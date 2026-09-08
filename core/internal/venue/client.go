@@ -258,12 +258,30 @@ func (b Book) BestAsk() *big.Int {
 // produce a crossed book (bid above ask) that never actually existed. A maker
 // that believes a phantom crossed book will quote into it.
 func (c *Client) ReadBook(ctx context.Context, pool common.Address, depth uint64) (*Book, error) {
+	at, err := c.BlockNow(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return c.ReadBookAt(ctx, pool, depth, at)
+}
+
+// BlockNow returns the current block height, for callers that must pin SEVERAL
+// reads to one view of the chain.
+//
+// ReadBook pins one book, which is enough for a quoter looking at one market.
+// It is not enough to COMPARE markets: each call picks its own latest block, so
+// two books can be quotes that never coexisted.
+func (c *Client) BlockNow(ctx context.Context) (*big.Int, error) {
 	bn, err := c.eth.BlockNumber(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("block number: %w", err)
 	}
-	at := new(big.Int).SetUint64(bn)
+	return new(big.Int).SetUint64(bn), nil
+}
 
+// ReadBookAt reads both sides of one pool's depth at a CALLER-SUPPLIED block,
+// so several books can be read from one consistent view of the chain.
+func (c *Client) ReadBookAt(ctx context.Context, pool common.Address, depth uint64, at *big.Int) (*Book, error) {
 	bidsV, err := c.callAt(ctx, abis.BinaryPoolRead, pool, at, "getBookLevels", true, depth)
 	if err != nil {
 		return nil, err
@@ -342,15 +360,22 @@ type MarketState struct {
 // ReadState gates every write. The indexer's status column trails this by seconds;
 // an order sent to a Locked market reverts or fails silently.
 func (c *Client) ReadState(ctx context.Context, marketAddr common.Address) (*MarketState, error) {
-	sv, err := c.call(ctx, abis.BinaryMarketRead, marketAddr, "status")
+	return c.ReadStateAt(ctx, marketAddr, nil)
+}
+
+// ReadStateAt reads lifecycle at a caller-supplied block; nil means latest.
+// A cross-section that pins its books must pin status too, or it can admit a
+// market whose price it read while Trading and whose status it read after.
+func (c *Client) ReadStateAt(ctx context.Context, marketAddr common.Address, at *big.Int) (*MarketState, error) {
+	sv, err := c.callAt(ctx, abis.BinaryMarketRead, marketAddr, at, "status")
 	if err != nil {
 		return nil, err
 	}
-	rv, err := c.call(ctx, abis.BinaryMarketRead, marketAddr, "isResolved")
+	rv, err := c.callAt(ctx, abis.BinaryMarketRead, marketAddr, at, "isResolved")
 	if err != nil {
 		return nil, err
 	}
-	vv, err := c.call(ctx, abis.BinaryMarketRead, marketAddr, "isVoided")
+	vv, err := c.callAt(ctx, abis.BinaryMarketRead, marketAddr, at, "isVoided")
 	if err != nil {
 		return nil, err
 	}

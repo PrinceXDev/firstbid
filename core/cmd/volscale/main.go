@@ -2,38 +2,25 @@
 // currently refuses.
 //
 // The engine skips 240-minute and longer windows because `calibrate` fits sigma
-// from RESOLVED VENUE HISTORY, and those cadences have not settled often enough
-// on this venue to fit anything. The README states that refusal as a virtue,
-// and as a refusal it is correct: extrapolating sqrt(t) four times past where it
-// was tested is how the model became overconfident the first time.
+// from RESOLVED VENUE HISTORY, and those cadences have barely settled here. But
+// "no resolved venue history" is not "no evidence": sigma is a property of the
+// INDEX PRICE PROCESS, and 30 days of M1 candles can measure two things the
+// venue's settlement log cannot.
 //
-// But "no resolved venue history" is not the same as "no evidence". Sigma is a
-// property of the INDEX PRICE PROCESS, not of the venue's settlement log. The
-// same 1-minute candles the backtest replays contain 30 days of BTC and ETH
-// history, which is enough to measure two things the venue's own history cannot:
+//  1. Whether sigma from price history agrees with sigma fitted from settled
+//     windows -- two independent estimators, one of which the engine already
+//     trades on. Disagreement would mean the venue fit is measuring something
+//     other than diffusion, and this whole argument is dead.
 //
-//  1. Whether sigma measured from price history agrees with sigma fitted from
-//     settled windows. Two independent estimators of the same quantity, one of
-//     which the engine already trades on. If they disagree, the venue fit is
-//     picking up something other than diffusion and this whole line of argument
-//     is dead.
+//  2. Whether sqrt(t) actually holds out to long horizons. Aggregating returns
+//     to k minutes and dividing by sqrt(k) must give the same sigma/min at
+//     every k. Where it stops doing so is where extrapolation stops being
+//     licensed -- measured, not asserted.
 //
-//  2. Whether sqrt(t) actually holds in the price process out to long horizons.
-//     Aggregating returns to k minutes and dividing by sqrt(k) must return the
-//     same sigma/min at every k if the walk is driftless with independent
-//     increments. Where it stops returning the same number is exactly where
-//     extrapolation stops being licensed -- measured, not asserted.
-//
-// The command prints a per-cadence verdict and refuses to bless a horizon it
-// does not have the independent observations to support. n is printed beside
-// every figure for that reason: 30 days contains 27 non-overlapping 24-hour
-// returns and well under one 45-day return, and a standard deviation from 27
-// observations is not evidence of the same kind as one from 43,000.
-//
-// Non-overlapping windows only. Overlapping returns share increments, so their
-// standard deviation looks reassuringly tight while carrying a fraction of the
-// independent information -- the same family of mistake as reading a price 59
-// seconds after the moment it claims to describe.
+// Non-overlapping returns only: overlapping ones share increments, so their
+// standard deviation looks tight while carrying a fraction of the independent
+// information. n is printed beside every figure, because a sigma from 27
+// observations is not the same kind of evidence as one from 43,000.
 //
 // Usage:
 //
@@ -60,14 +47,15 @@ import (
 // cadences the venue actually lists; 1m is the base measurement.
 var horizons = []int{1, 5, 15, 60, 240, 1440}
 
-// minIndependent is the fewest non-overlapping observations a horizon must have
-// before its sigma is allowed to influence a verdict.
+// mainnetRPC matches the literal every other cmd in this repo uses.
+const mainnetRPC = "https://api.infra.mainnet.somnia.network"
+
+// minIndependent is the fewest non-overlapping observations a horizon needs
+// before its sigma may influence a verdict.
 //
-// 30 is not a magic number from statistics; it is the point below which the
-// standard error of a standard deviation exceeds ~13% of the estimate, which is
-// larger than the 12% gap between the two sigmas the README already ships and
-// treats as a real regime difference. Below that, this command cannot tell a
-// volatility regime from noise, and should say so instead of guessing.
+// Below ~30 the standard error of a standard deviation exceeds ~13%, which is
+// larger than the 12% gap between the two sigmas the README already treats as a
+// real regime difference -- so below it we cannot tell regime from noise.
 const minIndependent = 30
 
 func main() {
@@ -80,9 +68,13 @@ func main() {
 	)
 	flag.Parse()
 
-	feed := venue.PriceFeedTestnet
+	// All three endpoints move together. CandlesM1 reads only the feed URL it
+	// is handed, so a mainnet run that still dialled the Shannon testnet RPC
+	// would fail on an endpoint it never reads from -- reporting "no candles"
+	// for a mainnet feed that was healthy the whole time.
+	rpc, gql, feed := venue.ShannonRPC, venue.ShannonGQL, venue.PriceFeedTestnet
 	if *net == "mainnet" {
-		feed = venue.PriceFeedMainnet
+		rpc, gql, feed = mainnetRPC, venue.MainnetGQL, venue.PriceFeedMainnet
 	}
 	assets := []string{"BTC", "ETH"}
 	if *asset != "" {
@@ -92,7 +84,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	c, err := venue.Dial(ctx, venue.ShannonRPC, venue.ShannonGQL)
+	c, err := venue.Dial(ctx, rpc, gql)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -106,9 +98,8 @@ func main() {
 	for _, a := range assets {
 		cs, err := c.CandlesM1(ctx, feed, a, from, *pages)
 		if err != nil {
-			// A page cap reached mid-history means the NEWEST candles are
-			// missing, so the sample is not the one that was asked for. Report
-			// it and measure what arrived rather than pretending otherwise.
+			// A page cap means the NEWEST candles are missing, so this is not
+			// the sample that was asked for. Say so, then measure what arrived.
 			log.Printf("%s: %v", a, err)
 		}
 		obs := toObs(cs)
@@ -124,10 +115,8 @@ func main() {
 		fmt.Printf("%s -- %d candles spanning %.1f days\n", a, len(obs), span)
 		fmt.Printf("  realised sigma/min (1m, n=%d) : %.6f\n", nBase, base)
 		if hasFit {
-			// The venue fit and the price-history fit are independent estimators
-			// of the same quantity. Agreement is the licence for everything
-			// below; disagreement would mean the venue fit is measuring
-			// something that is not the diffusion of this price series.
+			// Two independent estimators of one quantity. Agreement is the
+			// licence for everything below.
 			fmt.Printf("  venue-fitted sigma/min (15m)  : %.6f   ratio %.3f\n",
 				fitted, base/fitted)
 		} else {
@@ -191,10 +180,9 @@ type obsPoint struct {
 
 // toObs converts feed candles into a clean, ascending, deduplicated series.
 //
-// The candle's CLOSE is used, and every return below is taken between two
-// closes exactly k*60 seconds apart. A gap in the feed therefore drops the
-// return that spans it rather than silently stretching one return across a
-// longer interval, which would inflate sigma at every horizon that gap touches.
+// Returns are taken between closes exactly k*60s apart, so a gap in the feed
+// drops the return spanning it rather than stretching one across a longer
+// interval -- which would inflate sigma at every horizon the gap touches.
 func toObs(cs []venue.FeedCandle) []obsPoint {
 	out := make([]obsPoint, 0, len(cs))
 	for _, c := range cs {
@@ -225,13 +213,11 @@ func toObs(cs []venue.FeedCandle) []obsPoint {
 	return ded
 }
 
-// sigmaAt measures sigma per minute using non-overlapping k-minute returns,
-// and returns the count of independent returns it used.
+// sigmaAt measures sigma/min from non-overlapping k-minute returns, and returns
+// how many independent returns it used.
 //
-// Overlapping returns would multiply n by k while adding almost no independent
-// information. Reporting that inflated n beside a tight standard deviation
-// would make a 45-day horizon look measurable from 30 days of data, which is
-// the specific false confidence this command exists to prevent.
+// Overlapping returns would multiply n by k while adding almost no information,
+// making a 45-day horizon look measurable from 30 days of data.
 func sigmaAt(obs []obsPoint, k int) (float64, int) {
 	if k <= 0 || len(obs) <= k {
 		return 0, 0
@@ -249,10 +235,9 @@ func sigmaAt(obs []obsPoint, k int) (float64, int) {
 	if len(rets) < 2 {
 		return 0, len(rets)
 	}
-	// Population sigma about zero, not about the sample mean: the model this
-	// feeds is explicitly driftless, so subtracting a fitted mean would remove
-	// realised drift the pricing formula assumes is not there, and understate
-	// the dispersion the formula must survive.
+	// Sigma about zero, not the sample mean: the model this feeds is explicitly
+	// driftless, so subtracting a fitted mean would remove realised drift the
+	// formula assumes is absent and understate what it must survive.
 	var ss float64
 	for _, r := range rets {
 		ss += r * r

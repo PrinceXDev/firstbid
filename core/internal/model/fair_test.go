@@ -98,11 +98,9 @@ func TestOnlyValidatedCadencesAreCalibrated(t *testing.T) {
 	}
 }
 
-// TestHorizonScalingIsNotBlanketPermission is the test that keeps cmd/volscale
-// honest. The same 30-day measurement that blessed BTC/240m refused ETH/240m,
-// because sqrt(t) deviated 18.2% there against 11.1% for BTC. If ETH/240m ever
-// appears in the table without its own passing measurement, the tool has become
-// a rubber stamp and this test is the thing that says so.
+// The same measurement that blessed BTC/240m refused ETH/240m: sqrt(t) deviated
+// 18.2% there against 11.1%. If ETH/240m ever appears without its own passing
+// measurement, volscale has become a rubber stamp and this test says so.
 func TestHorizonScalingIsNotBlanketPermission(t *testing.T) {
 	if Calibrated("ETH", 14400) {
 		t.Error("ETH/14400s failed the sqrt(t) tolerance in cmd/volscale (+18.2%) and must not be quoted")
@@ -118,10 +116,8 @@ func TestHorizonScalingIsNotBlanketPermission(t *testing.T) {
 	}
 }
 
-// TestEveryFittedEntryDeclaresItsProvenance stops a future entry being added
-// without saying where its number came from. The table now mixes two kinds of
-// evidence, and an entry with no Source reads as resolved-window-strong when it
-// may not be.
+// The table mixes two kinds of evidence, so an entry with no Source reads as
+// resolved-window-strong when it may not be.
 func TestEveryFittedEntryDeclaresItsProvenance(t *testing.T) {
 	for c, v := range fitted {
 		switch v.Source {
@@ -137,12 +133,10 @@ func TestEveryFittedEntryDeclaresItsProvenance(t *testing.T) {
 	}
 }
 
-// TestHorizonScaledSigmaExceedsItsAnchor checks the direction of the only
-// horizon-scaled entry. Its whole justification is that realised moves at 240m
-// are LARGER than sqrt(t) from the 15m fit implies, which makes probabilities
-// less confident. A horizon-scaled sigma at or below its anchor would mean the
-// entry was making the model MORE confident on the cadence with the least
-// evidence -- the exact shape of the failure in docs/AUTOPSY.md.
+// A horizon-scaled entry is justified by realised moves being LARGER than
+// sqrt(t) implies, which makes probabilities less confident. One at or below its
+// anchor would raise confidence on the cadence with the least evidence -- the
+// shape of the failure in docs/AUTOPSY.md.
 func TestHorizonScaledSigmaExceedsItsAnchor(t *testing.T) {
 	for c, v := range fitted {
 		if v.Source != SourceHorizonScaled {

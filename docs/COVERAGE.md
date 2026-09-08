@@ -22,8 +22,9 @@ cost of the overreach turned out to be most of the venue.
 Two measurements, both reproducible by a command in this repository:
 
 1. **`cmd/surface`** — a census of the live order book. The cadences the model
-   refused carry **187 of 191 trades (97.9%)** and **~99% of quote volume**,
-   resting roughly **250×** the depth of the 60m books the model accepts.
+   refused carry **187 of 191 trades (97.9%)** and **~99% of quote volume**, and
+   over a 93-poll census **311 of 350 two-sided legs (88.9%)** sat on a cadence
+   the model had no opinion about.
 2. **`cmd/volscale`** — σ measured from 30 days of M1 index candles using
    non-overlapping returns. Realised σ/min agrees with this repo's
    resolved-window fit **to within 5.3%**, and √t holds at a 240-minute
@@ -62,8 +63,31 @@ the same shape in depth rather than in trade count:
 ```
 
 `fit=0.000000` is the model declining to have an opinion. Three of the five
-two-sided books live at that moment were ones the engine would not quote, and
-they held every unit of real depth.
+two-sided books live at that moment were ones the engine would not quote.
+
+That snapshot holds over a 93-poll census spanning 11:11–12:09, which also shows
+where the depth actually is — and it is not where the trades are:
+
+| Series | legs seen | status | median depth/side |
+| --- | ---: | --- | ---: |
+| ETH/1440m | 93 | refused | 200 |
+| ETH/64800m | 93 | refused | **49,975** |
+| BTC/64800m | 93 | refused | **49,443** |
+| BTC/60m | 21 | quoted | 200 |
+| ETH/60m | 18 | quoted | 200 |
+| BTC/1440m | 14 | refused | 25 |
+| BTC/240m | 9 | refused | 25 |
+| ETH/240m | 9 | refused | 25 |
+
+**Depth is not the argument, and it would be dishonest to present it as one.**
+Nearly all of it sits on 64800m — ~250× the 60m books — and that cadence stays
+refused below. The 240m books are *thinner* than the ones already quoted, at a
+median of 25. Adding BTC/240m buys the right to price a cadence that trades, not
+a deep one, which is why "priced, not proven" appears under open questions.
+
+The census ran against the pre-change binary, so BTC/240m appears as refused
+here. That is the correct frame: this table measures what the refusal cost, not
+what coverage looks like now.
 
 Note the last two rows. Both are quoted `0.495/0.505` — flat, at the coin flip —
 while BTC sat **1.15% below** its strike and ETH **1.1% above** its. Whatever
@@ -203,7 +227,10 @@ needs a longer sample, not a looser tolerance.
 are priced consistently with each other — a same-expiry strike ladder must be
 monotone in the strike under *every* probability measure, so a crossed ladder
 would be riskless profit and would not require the model to be right at all.
-It found **zero same-expiry pairs**. Expiries coincide only at alignment
+It found **zero same-expiry pairs across 93 polls**, spanning the top-of-hour
+boundary that is the one moment a 15m and a 60m window can coincide — and zero
+crossed books, so the intra-market box was not available either. Expiries
+coincide only at alignment
 boundaries, and with 8 live markets there is no cross-section to arbitrage. The
 tool prints that verdict itself and names the surviving idea; the thesis cost
 two commands rather than two days.

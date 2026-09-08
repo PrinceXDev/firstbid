@@ -18,13 +18,11 @@ type Vol struct {
 	Asset       string
 	SigmaPerMin float64
 	N           int
-	// Source records WHERE this number came from, because the table now holds
-	// two kinds of evidence and they are not interchangeable. N means "resolved
-	// windows" for one and "non-overlapping price returns" for the other, and a
-	// reader who conflates them will trust a horizon-scaled entry as though the
-	// venue had settled it. Provenance travels with the number for the same
-	// reason SpotObs carries an observable-at time: the expensive bug was not a
-	// wrong value, it was a value whose origin nobody had written down.
+	// Source records WHERE the number came from, because N means "resolved
+	// windows" for some entries and "non-overlapping price returns" for others.
+	// Conflate them and a horizon-scaled entry gets trusted as though the venue
+	// had settled it. The expensive bug was never a wrong value -- it was a
+	// value whose origin nobody had written down.
 	Source string
 }
 
@@ -35,11 +33,10 @@ const (
 	// windows of exactly this cadence. The strongest evidence available.
 	SourceResolvedWindows = "resolved-windows"
 
-	// SourceHorizonScaled: no resolved venue history exists at this cadence, so
-	// sigma is the same asset's resolved-window sigma scaled by the horizon
-	// ratio cmd/volscale measured in the index price process. Weaker: it
-	// assumes the price process the candles describe is the one the venue
-	// settles against, which is checked but not settled-window-proven.
+	// SourceHorizonScaled: no resolved history at this cadence, so sigma is the
+	// asset's resolved-window sigma scaled by the horizon ratio cmd/volscale
+	// measured in the price process. Weaker -- it assumes the candles describe
+	// the process the venue settles against.
 	SourceHorizonScaled = "horizon-scaled"
 )
 
@@ -111,37 +108,32 @@ var fitted = map[cadence]Vol{
 
 	// BTC/240m -- the first entry NOT fitted from resolved venue windows.
 	//
-	// WHY IT IS HERE. Refusing this cadence cost more than it saved. The venue
-	// reshaped into few, long, heavily traded windows, and a census of the live
-	// book (cmd/surface) found 187 of 191 trades and ~99% of quote volume on
-	// the 240m, 1440m and 64800m cadences this table refused, resting ~250x the
-	// depth of the 60m books it accepts. The refusal was not wrong to make; the
-	// REASON was too strong. "No resolved venue history" was read as "no
-	// evidence", but sigma is a property of the index price process, not of the
-	// venue's settlement log.
+	// WHY. Refusing this cadence cost more than it saved: cmd/surface censused
+	// the live book and found 187 of 191 trades and ~99% of quote volume on the
+	// cadences this table refused. The refusal was right; the REASON was too
+	// strong. "No resolved venue history" is not "no evidence" -- sigma is a
+	// property of the index price process, not of the settlement log. (Depth is
+	// not the argument: it sits almost entirely on 64800m, still refused below,
+	// and the 240m books are thinner than ones already quoted.)
 	//
-	// WHY THIS NUMBER. cmd/volscale measures sigma/min from 30 days of M1
-	// candles using non-overlapping returns, and two independent estimators
-	// agree: realised 1-minute sigma is 0.000530 against this table's
-	// resolved-window 0.000504, a ratio of 1.053. At a 240-minute aggregation
-	// realised sigma/min is 0.000589, i.e. 1.111x the 1-minute measurement over
-	// n=177 independent 4-hour returns.
+	// THE NUMBER. cmd/volscale measures sigma/min from 30 days of M1 candles,
+	// non-overlapping returns. Realised 1m sigma is 0.000530 against this
+	// table's 0.000504 -- two independent estimators, 5.3% apart. At a 240m
+	// aggregation realised sigma is 1.111x the 1m value over n=177.
 	//
-	// Only that RATIO is imported, never the absolute level:
+	// Only that RATIO is imported, never the level:
 	//
 	//	0.000504 (BTC/900 resolved) * 1.111 = 0.000560
 	//
 	// Importing 0.000589 directly would hand Calibration a number it was never
-	// fitted against -- k=0.715 was fitted to correct RESOLVED-WINDOW sigma on
-	// the 5m-60m cadences -- and the result would be corrected twice, which is
-	// the precise hazard the note above this table warns about. Scaling the
-	// resolved-window anchor keeps the whole existing calibration chain intact
-	// and imports only the part cmd/volscale actually validated: how sigma
-	// moves BETWEEN horizons.
+	// fitted against (k=0.715 corrects RESOLVED-WINDOW sigma on 5m-60m), so it
+	// would be corrected twice -- the hazard the note above this table warns
+	// about. Scaling the anchor keeps that chain intact and imports only what
+	// volscale validated: how sigma moves BETWEEN horizons.
 	//
-	// The deviation is POSITIVE, so this sigma is larger than sqrt(t) from the
-	// 15m fit implies, and the probabilities it yields are less confident.
-	// That is the safe direction; overconfidence is what cost 37%.
+	// The deviation is POSITIVE, so this sigma is larger than sqrt(t) implies
+	// and its probabilities are less confident. Safe direction; overconfidence
+	// is what cost 37%.
 	{"BTC", 14400}: {Asset: "BTC", SigmaPerMin: 0.000560, N: 177, Source: SourceHorizonScaled},
 
 	// WHAT IS DELIBERATELY ABSENT, and why the same measurement excludes it:

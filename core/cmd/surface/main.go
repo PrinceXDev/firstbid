@@ -1,52 +1,25 @@
-// Command surface answers one question, and is built to answer it "no".
+// Command surface looks for profit that does not need our model to be right.
 //
-// Firstbid prices each window against a model. Every take therefore depends on
-// the model being right, and docs/AUTOPSY.md is what that dependency cost when
-// it was wrong. The obvious next question is whether this venue offers trades
-// that are profitable regardless of whether our model is right.
-//
-// It might. DreamDEX runs several windows on ONE underlying at the same time --
-// ob.json shows 900s, 3600s, 14400s and 86400s cadences co-existing for both
-// BTC and ETH -- and those windows are not independent. They are all functions
-// of the same spot process. That imposes relations between their prices which
-// hold under EVERY probability measure, so a violation is riskless profit
-// rather than a view.
-//
-// The relation this command measures is the vertical one, because it is the
-// only one that is genuinely model-free:
+// Every take Firstbid makes depends on the model, and docs/AUTOPSY.md is what
+// that dependency cost when the model was wrong. But DreamDEX runs several
+// windows on one underlying at once, and they are all driven by the same spot
+// process -- which forces a relation between their prices that holds under
+// EVERY probability measure:
 //
 //	Two windows on the same asset expiring at the SAME second, with strikes
 //	K1 < K2, must satisfy P(Up | K1) >= P(Up | K2). Up at the lower strike
 //	needs less to happen, so it is worth at least as much, always.
 //
-// If the book lets us buy Up(K1) for less than we can sell Up(K2), the pair
-// pays >= 0 at settlement and cost < 0 to enter. That is locked, and no belief
-// about sigma or direction enters the argument.
+// Buy Up(K1) below what Up(K2) can be sold for and the pair pays >= 0 at
+// settlement for a negative entry cost. No view on sigma or direction.
 //
-// # WHAT THIS COMMAND DELIBERATELY DOES NOT DO
-//
-// It does not trade, and it does not fit anything. It records a census. The
-// thesis has a specific, cheap way to die: if same-expiry pairs almost never
-// co-exist on this venue, there is nothing to measure and the strategy is
-// vapour. The census is printed before the violations for exactly that reason
-// -- a pair count near zero is the finding, and no amount of violation
-// arithmetic afterwards would rescue it.
-//
-// It also reports two softer signals, clearly separated from the hard one
-// because they are NOT arbitrage and must never be presented as such:
-//
-//   - crossed books, which are the intra-market box (Up + Down < 1) and, on a
-//     single-block read, usually mean the book really was crossed rather than
-//     that we straddled a block boundary.
-//   - dispersion of the sigma implied by each cadence's mid. The README
-//     measured sigma/min to be stable across a 12x range of window lengths, so
-//     wide dispersion is a mispricing signal -- but reading it requires
-//     believing the diffusion model, which is the dependency we are trying to
-//     escape.
-//
-// Every poll is written to JSONL so the verdict can be recomputed from the
-// record instead of trusted, and so a later run can be compared against this
-// one rather than replacing it.
+// This command only MEASURES. It censuses the live book, counts which relations
+// actually co-exist, and reports violations -- with the census first, because
+// the thesis dies cheaply: if same-expiry pairs never co-exist here, there is
+// nothing to trade and no violation arithmetic would rescue it. Two softer
+// signals (crossed books, implied-sigma dispersion) are reported separately
+// because they are NOT arbitrage. Every poll is appended to JSONL so the
+// verdict can be recomputed rather than trusted.
 //
 // Usage:
 //
@@ -93,9 +66,7 @@ func main() {
 	if out == "" {
 		out = filepath.Join("..", "docs", "surface-census.jsonl")
 	}
-	// Append, never truncate. A census whose earlier runs are silently
-	// overwritten cannot be compared against itself, and comparing runs is the
-	// whole point of writing it down.
+	// Append, never truncate: runs are meant to be compared, not replaced.
 	f, err := os.OpenFile(out, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		log.Fatalf("open %s: %v", out, err)
@@ -103,8 +74,7 @@ func main() {
 	defer f.Close()
 	enc := json.NewEncoder(f)
 
-	// The deadline bounds the whole census; each poll gets its own shorter
-	// context so one unresponsive RPC cannot consume the entire run.
+	// Deadline bounds the run; each poll gets its own shorter context.
 	root := context.Background()
 	deadline := time.Now().Add(*runFor)
 
@@ -127,9 +97,8 @@ func main() {
 		snap, err := takeSnapshot(pctx, c, feed, *depth)
 		cancel()
 		if err != nil {
-			// A failed poll is a gap in the record, not a reason to stop: the
-			// indexer and RPC both flake, and a census that dies on the first
-			// timeout measures nothing.
+			// A gap in the record, not a reason to stop: a census that dies on
+			// the first flaky RPC measures nothing.
 			log.Printf("poll failed: %v", err)
 		} else {
 			snap.Fee = *fee
@@ -153,13 +122,11 @@ func main() {
 
 // ---- one snapshot of the whole live cross-section -------------------------
 
-// leg is one live window reduced to the only things a relative-value check
-// needs: what it pays on, when it settles, and what it can be traded at.
+// leg is one live window: what it pays on, when it settles, what it trades at.
 //
-// Bid and Ask are in Up terms and in probability units. Up and Down share a
-// single book quoted in Up terms, so buying Down at q is selling Up at 1-q --
-// which is why one Up-terms bid/ask pair is a complete two-sided tradable
-// quote and no separate Down book is read.
+// Bid and Ask are in Up terms, in probability units. Up and Down share one book
+// quoted in Up terms, so buying Down at q is selling Up at 1-q -- one bid/ask
+// pair is therefore a complete two-sided quote, and no Down book is read.
 type leg struct {
 	Series      string  `json:"series"`
 	RowID       string  `json:"rowId"`
@@ -175,14 +142,11 @@ type leg struct {
 	BidQty      float64 `json:"bidQty"`
 	AskQty      float64 `json:"askQty"`
 	Crossed     bool    `json:"crossed"`
-	// ImpliedSigma is sigma/min backed out of the mid, or 0 when the mid is
-	// too close to 0.5 (or spot too close to strike) for the inversion to carry
-	// information. Model-relative, and never used in the hard verdict.
+	// ImpliedSigma is sigma/min backed out of the mid, or 0 where the inversion
+	// carries no information. Model-relative; never used in the hard verdict.
 	ImpliedSigma float64 `json:"impliedSigma,omitempty"`
-	// FittedSigma is what calibrate fitted for this series, 0 if uncalibrated.
-	// The 14400s and 86400s cadences have no resolved history, so the engine
-	// refuses to quote them -- they are exactly the windows a relative-value
-	// price would reach that the model cannot.
+	// FittedSigma is what the model fitted for this series, 0 if it refuses to
+	// quote the cadence at all. Those refusals are the interesting rows.
 	FittedSigma float64 `json:"fittedSigma,omitempty"`
 }
 
@@ -199,12 +163,11 @@ type violation struct {
 	Bid      float64 `json:"bid"`
 	// Gross is bid - ask: profit per unit locked at settlement, before costs.
 	Gross float64 `json:"gross"`
-	// Size is the depth available on the thinner of the two levels. A gap with
-	// no size behind it is a screenshot, not a trade.
+	// Size is depth on the thinner of the two levels. A gap with no size behind
+	// it is a screenshot, not a trade.
 	Size float64 `json:"size"`
-	// Identical marks the degenerate case: same expiry AND same strike, so the
-	// two windows are the same contract under different marketIds and any gap
-	// between them is unambiguous.
+	// Identical: same expiry AND exactly the same strike, so the two windows are
+	// one contract under two marketIds and any gap is unambiguous.
 	Identical bool `json:"identical"`
 }
 
@@ -223,23 +186,52 @@ type pairCensus struct {
 	Disjoint int `json:"disjoint"`
 }
 
+// skip is one market the poll wanted and did not get, with the stage that
+// failed. Recorded rather than swallowed: see snapshot.Complete.
+type skip struct {
+	MarketID string `json:"marketId"`
+	Series   string `json:"series"`
+	Stage    string `json:"stage"`
+	Err      string `json:"err"`
+}
+
 type snapshot struct {
 	At         int64                 `json:"at"`
+	Block      uint64                `json:"block"`
 	Legs       []leg                 `json:"legs"`
 	Census     map[string]pairCensus `json:"census"`
 	Violations []violation           `json:"violations"`
 	Crossed    int                   `json:"crossed"`
 	SpotAgeMS  int64                 `json:"spotAgeMs"`
 	Fee        float64               `json:"fee"`
+
+	// Discovered is how many live markets the indexer offered; Skips is every
+	// one that a chain read then failed to deliver.
+	Discovered int    `json:"discovered"`
+	Skips      []skip `json:"skips,omitempty"`
+
+	// Complete is false when a market was lost to a failed chain read.
+	//
+	// A transient RPC error can remove one side of every same-expiry pair,
+	// leaving a poll that looks exactly like a venue with no cross-section. So
+	// only complete polls may support the negative verdict. Partial polls still
+	// contribute violations -- one observed is real whatever else was missed;
+	// it is the ABSENCE of pairs that a partial read cannot establish.
+	Complete bool `json:"complete"`
 }
 
-// takeSnapshot reads the entire live cross-section once.
+// takeSnapshot reads the entire live cross-section once, AT ONE BLOCK.
 //
-// Chain is truth for everything traded on: the indexer's status column trails
-// the timestamp-derived on-chain state, so every leg is confirmed Trading via
-// ReadState before it is allowed to contribute a price. A leg admitted on the
-// indexer's word could be Locked, and a "violation" against a locked window is
-// not tradable.
+// The single block is what makes this a cross-section rather than a montage:
+// ReadBook picks its own latest block per call, so eight markets read with
+// eight calls can sample eight chain states, and comparing quotes that never
+// coexisted manufactures an inconsistency that was never tradable. Same mistake
+// ReadBook's own doc warns about, one level up -- two books instead of two
+// sides.
+//
+// Status comes from the chain, not the indexer, whose status column trails by
+// seconds. A "violation" against a window that has already locked is not a
+// trade.
 func takeSnapshot(ctx context.Context, c *venue.Client, feed string, depth uint64) (*snapshot, error) {
 	spots, err := c.Spots(ctx, feed)
 	if err != nil {
@@ -258,51 +250,95 @@ func takeSnapshot(ctx context.Context, c *venue.Client, feed string, depth uint6
 		return nil, fmt.Errorf("opens: %w", err)
 	}
 
+	// One block for every chain read below. Chosen after discovery so the block
+	// is no older than the market list it is applied to.
+	at, err := c.BlockNow(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("block: %w", err)
+	}
+
 	now := time.Now().Unix()
-	snap := &snapshot{At: now, Census: map[string]pairCensus{}}
+	snap := &snapshot{
+		At:         now,
+		Block:      at.Uint64(),
+		Census:     map[string]pairCensus{},
+		Discovered: len(live),
+		Complete:   true,
+	}
 	if sp, ok := spots["BTC"]; ok {
 		snap.SpotAgeMS = sp.Age.Milliseconds()
+	}
+	// lose records a market the poll could not use. A chain failure clears
+	// Complete; a market that is merely not comparable (no strike, not Trading)
+	// does not -- that absence is a fact about the venue, not about our RPC.
+	lose := func(im venue.IndexerMarket, stage string, err error, fatal bool) {
+		s := skip{
+			MarketID: im.MarketID,
+			Series:   fmt.Sprintf("%s/%dm", im.Asset, im.IntervalSecs()/60),
+			Stage:    stage,
+		}
+		if err != nil {
+			s.Err = err.Error()
+		}
+		snap.Skips = append(snap.Skips, s)
+		if fatal {
+			snap.Complete = false
+		}
 	}
 
 	for _, im := range live {
 		sp, ok := spots[im.Asset]
 		if !ok {
+			lose(im, "no-spot", nil, false)
 			continue
 		}
 		open, ok := opens[im.RowID]
 		if !ok {
 			// No resolved reference answer yet. The window has no line to beat
 			// that we can read, so it has no strike and cannot be compared.
+			lose(im, "no-strike", nil, false)
 			continue
 		}
 		m, err := c.ReadMarket(ctx, im.ID())
 		if err != nil {
+			lose(im, "read-market", err, true)
 			continue
 		}
-		st, err := c.ReadState(ctx, m.MarketAddr)
-		if err != nil || st.Status != venue.StatusTrading {
+		st, err := c.ReadStateAt(ctx, m.MarketAddr, at)
+		if err != nil {
+			lose(im, "read-state", err, true)
+			continue
+		}
+		if st.Status != venue.StatusTrading {
+			lose(im, "not-trading", nil, false)
 			continue
 		}
 		secsLeft := float64(int64(m.Expiry) - now)
 		if secsLeft <= 0 {
+			lose(im, "expired", nil, false)
 			continue
 		}
 
-		// Both sides at ONE block. Two unpinned reads can straddle a block
-		// boundary and manufacture a crossed book that never existed -- and a
-		// phantom cross would be recorded here as a free intra-market box.
-		bk, err := c.ReadBook(ctx, m.Pool, depth)
+		bk, err := c.ReadBookAt(ctx, m.Pool, depth, at)
 		if err != nil {
+			lose(im, "read-book", err, true)
 			continue
 		}
 		bid := lvlPx(bk.BestBid(), im.QuoteDec)
 		ask := lvlPx(bk.BestAsk(), im.QuoteDec)
-		if bid <= 0 || ask <= 0 {
-			// One-sided or empty. 80.8% of this venue's markets never trade, so
-			// this is the common case and not an error -- but a leg that can
-			// only be traded in one direction cannot close a two-leg box.
+		bidQty := qtyAt(bk.Bids, im.QuoteDec)
+		askQty := qtyAt(bk.Asks, im.QuoteDec)
+		if bid <= 0 && ask <= 0 {
+			// Completely empty. 80.8% of this venue's markets never trade, so
+			// this is the common case and not an error.
+			lose(im, "empty-book", nil, false)
 			continue
 		}
+		// One-sided books are KEPT. A vertical needs only the lower strike's ask
+		// and the higher strike's bid, so an ask-only and a bid-only market at
+		// the same expiry are together a complete trade. Dropping them would
+		// also hide the pair from the census -- letting the tool prove its own
+		// null result.
 
 		strike := venue.NormaliseTo(open, sp.Price)
 		l := leg{
@@ -317,9 +353,11 @@ func takeSnapshot(ctx context.Context, c *venue.Client, feed string, depth uint6
 			Spot:        sp.Price,
 			Bid:         bid,
 			Ask:         ask,
-			BidQty:      qtyAt(bk.Bids, im.QuoteDec),
-			AskQty:      qtyAt(bk.Asks, im.QuoteDec),
-			Crossed:     bid > ask,
+			BidQty:      bidQty,
+			AskQty:      askQty,
+			// Needs BOTH sides: bid > ask with ask == 0 would call every
+			// bid-only market a free intra-market box.
+			Crossed: bid > 0 && ask > 0 && bid > ask,
 		}
 		if l.Crossed {
 			snap.Crossed++
@@ -327,7 +365,11 @@ func takeSnapshot(ctx context.Context, c *venue.Client, feed string, depth uint6
 		if s, ok := model.SigmaPerMin(im.Asset, im.IntervalSecs()); ok {
 			l.FittedSigma = s
 		}
-		l.ImpliedSigma = impliedSigma(sp.Price, strike, (bid+ask)/2, secsLeft)
+		// Only a two-sided book has a mid; inverting half a quote would report
+		// it as a market price.
+		if bid > 0 && ask > 0 {
+			l.ImpliedSigma = impliedSigma(sp.Price, strike, (bid+ask)/2, secsLeft)
+		}
 		snap.Legs = append(snap.Legs, l)
 	}
 
@@ -348,11 +390,10 @@ func takeSnapshot(ctx context.Context, c *venue.Client, feed string, depth uint6
 	return snap, nil
 }
 
-// strikeEps is how close two strikes must be to count as the same contract.
-// Strikes are index prices in the tens of thousands, and the oracle's answer is
-// a fixed-point value whose scale varies by question, so an exact float compare
-// would miss genuine duplicates. One part in 100,000 is far tighter than any
-// price move inside a window and far looser than float noise.
+// strikeEps groups strikes for the CENSUS. The oracle's fixed-point scale
+// varies by question, so identical strikes can differ in the last bits. One
+// part in 100,000 is tighter than any in-window price move, looser than noise.
+// It does not license a trade -- see the reverse direction in scanAsset.
 const strikeEps = 1e-5
 
 // scanAsset counts the relations present among one asset's live windows and
@@ -365,7 +406,11 @@ func scanAsset(ls []leg) (pairCensus, []violation) {
 		for j := i + 1; j < len(ls); j++ {
 			a, b := ls[i], ls[j]
 			sameExpiry := a.Expiry == b.Expiry
-			sameStrike := relClose(a.Strike, b.Strike, strikeEps)
+			// nearStrike groups the census; exactStrike licenses the reverse
+			// trade. They are deliberately different tests -- see below.
+			nearStrike := relClose(a.Strike, b.Strike, strikeEps)
+			exactStrike := a.Strike == b.Strike
+			sameStrike := nearStrike
 
 			switch {
 			case sameExpiry && sameStrike:
@@ -392,12 +437,15 @@ func scanAsset(ls []leg) (pairCensus, []violation) {
 			// resting a Buy Down at 1-bid that crosses hi's bid; the pool mints
 			// the pair, so no inventory is needed to be short. That mechanism
 			// is real on this venue -- MINT_A_PAIR was 22-42% of all fills.
-			if v, ok := verticalArb(lo, hi, sameStrike); ok {
+			if v, ok := verticalArb(lo, hi, exactStrike); ok {
 				out = append(out, v)
 			}
-			// When the strikes are identical the inequality is an equality, so
-			// the reverse direction is an arbitrage too and must be checked.
-			if sameStrike {
+			// The REVERSE direction needs EXACT equality, not the tolerance.
+			// P(Up|K_lo) >= P(Up|K_hi) collapses to equality only when both
+			// settle against the same threshold; under near-equality the
+			// reverse pair pays -1 whenever spot lands BETWEEN the strikes --
+			// a directional bet, not an arbitrage.
+			if exactStrike {
 				if v, ok := verticalArb(hi, lo, true); ok {
 					out = append(out, v)
 				}
@@ -407,13 +455,17 @@ func scanAsset(ls []leg) (pairCensus, []violation) {
 	return cen, out
 }
 
-// verticalArb tests buying Up on `lo` and selling Up on `hi`.
-//
-// The payoff of that pair is Up(K_lo) - Up(K_hi), which is 1 when spot finishes
-// between the strikes and 0 otherwise -- never negative, because lo needs less
-// to happen than hi. So any positive bid_hi - ask_lo is profit locked at
-// settlement under every probability measure.
+// verticalArb tests buying Up on `lo` and selling Up on `hi`. The pair pays
+// Up(K_lo) - Up(K_hi): 1 if spot finishes between the strikes, else 0, never
+// negative. So any positive bid_hi - ask_lo is profit locked at settlement.
 func verticalArb(lo, hi leg, identical bool) (violation, bool) {
+	// Require the two sides this trade actually consumes, with size behind
+	// them. A one-sided leg can still complete the pair, so the check belongs
+	// here -- but an absent side reads as 0.0, which would otherwise look like
+	// the cheapest ask on the venue.
+	if lo.Ask <= 0 || hi.Bid <= 0 || lo.AskQty <= 0 || hi.BidQty <= 0 {
+		return violation{}, false
+	}
 	gross := hi.Bid - lo.Ask
 	if gross <= 0 {
 		return violation{}, false
@@ -433,14 +485,11 @@ func verticalArb(lo, hi leg, identical bool) (violation, bool) {
 	}, true
 }
 
-// impliedSigma inverts FairValue for sigma/min.
+// impliedSigma inverts FairValue: sigma = ln(spot/strike) / (Phi^-1(mid)*sqrt(m)).
 //
-// FairValue is Phi(ln(spot/strike) / (sigma*sqrt(minutes))), so
-// sigma = ln(spot/strike) / (Phi^-1(mid) * sqrt(minutes)). Near mid = 0.5 the
-// inverse normal goes to zero and the quotient explodes; near spot = strike the
-// numerator does the same. Both are returned as 0 rather than as a huge number,
-// because a sigma of 40 in the record would be read as a signal when it is
-// really a division by almost nothing.
+// Near mid = 0.5 the inverse normal goes to zero, and near spot = strike so does
+// the numerator. Both return 0 rather than a huge number, because a sigma of 40
+// in the record reads as a signal when it is really a division by nothing.
 func impliedSigma(spot, strike, mid, secsLeft float64) float64 {
 	if spot <= 0 || strike <= 0 || secsLeft <= 0 {
 		return 0
@@ -476,14 +525,23 @@ type aggregate struct {
 	netHits             int
 	bestGross           violation
 	crossed             int
-	// sigma dispersion per poll: max - min of the defined implied sigmas,
-	// relative to the fitted value, so the numbers are comparable across assets.
+	// sigma dispersion per poll, relative to fitted so assets are comparable.
 	disp []float64
 	// uncalibrated legs are windows the engine currently refuses to quote.
 	uncalibrated int
+
+	// completePolls is the ONLY denominator the negative verdict may use.
+	// skipped tallies lost markets by stage, so a run that quietly degraded
+	// says so instead of reporting a clean null result.
+	completePolls int
+	skipped       map[string]int
+	// completeSameExpiry counts model-free pairs seen in complete polls only.
+	completeSameExpiry int
 }
 
-func newAggregate(fee float64) *aggregate { return &aggregate{fee: fee} }
+func newAggregate(fee float64) *aggregate {
+	return &aggregate{fee: fee, skipped: map[string]int{}}
+}
 
 func (a *aggregate) add(s *snapshot) {
 	a.polls++
@@ -492,6 +550,12 @@ func (a *aggregate) add(s *snapshot) {
 		a.legMax = len(s.Legs)
 	}
 	a.crossed += s.Crossed
+	if s.Complete {
+		a.completePolls++
+	}
+	for _, sk := range s.Skips {
+		a.skipped[sk.Stage]++
+	}
 
 	var anySameExpiry bool
 	for _, c := range s.Census {
@@ -501,6 +565,9 @@ func (a *aggregate) add(s *snapshot) {
 		a.census.Disjoint += c.Disjoint
 		if c.SameExpiry > 0 {
 			anySameExpiry = true
+		}
+		if s.Complete {
+			a.completeSameExpiry += c.SameExpiry
 		}
 	}
 	if anySameExpiry {
@@ -544,8 +611,8 @@ func (a *aggregate) add(s *snapshot) {
 	}
 }
 
-// report prints the census first and the verdict last, and the verdict is
-// allowed to say no.
+// report prints the census first and the verdict last. The verdict is allowed
+// to say no, and to say "inconclusive".
 func (a *aggregate) report() {
 	if a.polls == 0 {
 		fmt.Println("no successful polls; nothing measured")
@@ -553,7 +620,26 @@ func (a *aggregate) report() {
 	}
 	fmt.Println("CENSUS -- does the cross-section even exist?")
 	fmt.Printf("  polls                                : %d\n", a.polls)
-	fmt.Printf("  two-sided legs per poll (mean / max) : %.1f / %d\n",
+	fmt.Printf("  complete polls (read every market)   : %d (%.1f%%)\n",
+		a.completePolls, 100*float64(a.completePolls)/float64(a.polls))
+	if len(a.skipped) > 0 {
+		stages := make([]string, 0, len(a.skipped))
+		for st := range a.skipped {
+			stages = append(stages, st)
+		}
+		sort.Strings(stages)
+		fmt.Print("  markets skipped, by stage            : ")
+		for i, st := range stages {
+			if i > 0 {
+				fmt.Print(", ")
+			}
+			fmt.Printf("%s=%d", st, a.skipped[st])
+		}
+		fmt.Println()
+		fmt.Println("    (read-market / read-state / read-book are RPC failures and make a")
+		fmt.Println("     poll incomplete; the others are facts about the venue and do not)")
+	}
+	fmt.Printf("  legs per poll, >=1 tradable side     : %.1f / %d\n",
 		float64(a.legTotal)/float64(a.polls), a.legMax)
 	fmt.Printf("  polls with >=1 same-expiry pair      : %d (%.1f%%)\n",
 		a.pollsWithSameExpiry, 100*float64(a.pollsWithSameExpiry)/float64(a.polls))
@@ -588,14 +674,22 @@ func (a *aggregate) report() {
 	fmt.Println()
 	fmt.Println("VERDICT")
 	switch {
-	case a.census.SameExpiry == 0:
-		fmt.Println("  KILLED. No two live windows on one asset ever shared an expiry, so the")
-		fmt.Println("  model-free vertical rule has nothing to apply to. Do not build the")
+	case a.completePolls == 0:
+		// The negative result is the one this tool most wants to report, which
+		// is exactly why a degraded sample may not support it.
+		fmt.Printf("  INCONCLUSIVE. Not one of %d polls read every market it discovered, so\n", a.polls)
+		fmt.Println("  the absence of same-expiry pairs cannot be distinguished from markets")
+		fmt.Println("  lost to failed chain reads. Fix the RPC path and re-run before drawing")
+		fmt.Println("  any conclusion; the skip table above says which stage failed.")
+	case a.completeSameExpiry == 0:
+		fmt.Printf("  KILLED. Across %s, no two live windows on one asset ever shared\n", plural(a.completePolls, "complete poll"))
+		fmt.Println("  an expiry, so the model-free vertical rule has nothing to apply to.")
+		fmt.Println("  Do not build the arbitrage taker.")
 		fhint()
 	case a.netHits == 0:
-		fmt.Printf("  KILLED as a taker. %d same-expiry pairs existed and none was mispriced\n", a.census.SameExpiry)
-		fmt.Println("  past the fee. The relation holds, which means the venue is already")
-		fmt.Println("  consistent where it is comparable -- there is no free money here.")
+		fmt.Printf("  KILLED as a taker. %d same-expiry pairs existed in complete polls and\n", a.completeSameExpiry)
+		fmt.Println("  none was mispriced past the fee. The relation holds, which means the")
+		fmt.Println("  venue is already consistent where it is comparable -- no free money.")
 		fhint()
 	case a.netHits < a.polls/20:
 		fmt.Printf("  MARGINAL. %d net violations across %d polls is too rare to be a\n", a.netHits, a.polls)
@@ -609,12 +703,20 @@ func (a *aggregate) report() {
 	}
 }
 
-// fhint states the fallback once, so a negative verdict still leaves the reader
-// with the next move rather than just a dead end.
+// fhint leaves a negative verdict with the next move, not just a dead end.
 func fhint() {
-	fmt.Println("  arbitrage taker. The surviving idea is the surface as a REFERENCE PRICE:")
-	fmt.Println("  derive a quote for all ~770 daily markets from the few that trade, which")
-	fmt.Println("  needs consistency to hold, not to be violated.")
+	fmt.Println("  The surviving idea is the surface as a REFERENCE PRICE: derive a quote")
+	fmt.Println("  for every listed market from the few that trade, which needs consistency")
+	fmt.Println("  to hold rather than to be violated.")
+}
+
+// plural renders "1 complete poll" and "93 complete polls". A verdict is the
+// most-read line this command prints, and it should not read like a stack trace.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func printPoll(s *snapshot, fee float64) {
@@ -643,8 +745,7 @@ func printPoll(s *snapshot, fee float64) {
 // ---- small helpers --------------------------------------------------------
 
 // lvlPx converts a raw book price to probability units. The grid scales with
-// the collateral's decimals -- 6 on testnet, 18 on mainnet -- so the divisor is
-// read per market and never hardcoded.
+// the collateral's decimals (6 testnet, 18 mainnet), so read it per market.
 func lvlPx(p *big.Int, dec int) float64 {
 	if p == nil {
 		return 0
@@ -654,8 +755,7 @@ func lvlPx(p *big.Int, dec int) float64 {
 	return f
 }
 
-// qtyAt is the size resting on the touch. A price with no size behind it cannot
-// be traded, so the violation record carries depth alongside the gap.
+// qtyAt is size resting on the touch, so violations carry depth, not just a gap.
 func qtyAt(ls []venue.Level, dec int) float64 {
 	if len(ls) == 0 || ls[0].Quantity == nil {
 		return 0
@@ -674,10 +774,8 @@ func relClose(a, b, eps float64) bool {
 	return math.Abs(a-b)/m < eps
 }
 
-// probit is the inverse normal CDF (Acklam's rational approximation, refined by
-// one Halley step). Accurate to roughly 1e-15 over the range that matters here,
-// which is far tighter than the 0.045 calibration error anything downstream
-// respects.
+// probit is the inverse normal CDF: Acklam's approximation plus one Halley
+// step, accurate to ~1e-15 -- far tighter than anything downstream needs.
 func probit(p float64) float64 {
 	if p <= 0 || p >= 1 {
 		return math.NaN()
@@ -707,8 +805,8 @@ func probit(p float64) float64 {
 		x = (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r + a[5]) * q /
 			(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r + 1)
 	}
-	// One Halley refinement, using the same erfc the model's normCDF uses so
-	// the inverse is consistent with the forward function it inverts.
+	// Halley step via the same erfc the model's normCDF uses, so the inverse
+	// stays consistent with the function it inverts.
 	e := 0.5*math.Erfc(-x/math.Sqrt2) - p
 	u := e * math.Sqrt(2*math.Pi) * math.Exp(x*x/2)
 	return x - u/(1+x*u/2)

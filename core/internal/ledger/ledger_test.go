@@ -127,6 +127,91 @@ func TestUnsettledWindowsAreExcluded(t *testing.T) {
 
 var fillSeq int
 
+// TestOpenPositionsSumsOnlyUnsettledFills checks the query a restarted engine
+// depends on to see real, in-flight positions instead of starting flat. A
+// settled window's fills must not appear here -- that exposure is gone the
+// moment the window resolves, whether or not the engine happens to be running
+// when it does.
+func TestOpenPositionsSumsOnlyUnsettledFills(t *testing.T) {
+	d := open(t)
+	ctx := context.Background()
+
+	if err := d.UpsertWindow(ctx, WindowRow{MarketID: "open1", Label: "BTC/60m", Asset: "BTC", IntervalSec: 3600, Expiry: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.UpsertWindow(ctx, WindowRow{MarketID: "open2", Label: "BTC/240m", Asset: "BTC", IntervalSec: 14400, Expiry: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.UpsertWindow(ctx, WindowRow{MarketID: "settled1", Label: "ETH/60m", Asset: "ETH", IntervalSec: 3600, Expiry: 3}); err != nil {
+		t.Fatal(err)
+	}
+
+	// open1: two BUY_UP fills, net +15.
+	mustFill(t, d, FillRow{TxHash: "a", MarketID: "open1", Kind: "BUY_UP", Price: 0.5, Quantity: 10, Fair: 0.5})
+	mustFill(t, d, FillRow{TxHash: "b", MarketID: "open1", Kind: "BUY_UP", Price: 0.5, Quantity: 5, Fair: 0.5})
+	// open2: a BUY_DN fill on the same asset, net -8.
+	mustFill(t, d, FillRow{TxHash: "c", MarketID: "open2", Kind: "BUY_DN", Price: 0.5, Quantity: 8, Fair: 0.5})
+	// settled1: would contribute if it were still open; it is settled, so it
+	// must be excluded entirely, not just netted to zero.
+	mustFill(t, d, FillRow{TxHash: "d", MarketID: "settled1", Kind: "BUY_UP", Price: 0.5, Quantity: 100, Fair: 0.5})
+	if err := d.Settle(ctx, "settled1", 0, false, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := d.OpenPositions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byMarket := map[string]OpenPosition{}
+	for _, p := range got {
+		byMarket[p.MarketID] = p
+	}
+	if len(byMarket) != 2 {
+		t.Fatalf("OpenPositions returned %d markets, want 2 (settled1 must be excluded): %+v", len(byMarket), got)
+	}
+	if p, ok := byMarket["open1"]; !ok || p.Signed != 15 || p.Asset != "BTC" {
+		t.Errorf("open1 = %+v, want {Asset:BTC Signed:15}", p)
+	}
+	if p, ok := byMarket["open2"]; !ok || p.Signed != -8 || p.Asset != "BTC" {
+		t.Errorf("open2 = %+v, want {Asset:BTC Signed:-8}", p)
+	}
+	if _, ok := byMarket["settled1"]; ok {
+		t.Error("settled1 appeared in OpenPositions; settled windows must be excluded")
+	}
+}
+
+// TestRecentHealthExcludesPlaceholderFair checks the fix for scoring a
+// reconciled fill's execution price as if it were a genuine model
+// prediction: RecordFill(HasModelFair: false) must never appear in
+// RecentHealth's output.
+func TestRecentHealthExcludesPlaceholderFair(t *testing.T) {
+	d := open(t)
+	ctx := context.Background()
+
+	if err := d.UpsertWindow(ctx, WindowRow{MarketID: "m1", Label: "BTC/60m", Asset: "BTC", IntervalSec: 3600, Expiry: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// A genuine model prediction: must be scored.
+	mustFill(t, d, FillRow{TxHash: "a", MarketID: "m1", Kind: "BUY_UP", Price: 0.60, Quantity: 5, Fair: 0.70, HasModelFair: true})
+	// A reconciled fill with no model snapshot: Fair holds the execution
+	// price, and must NOT be scored as a prediction.
+	mustFill(t, d, FillRow{TxHash: "b", MarketID: "m1", Kind: "BUY_UP", Price: 0.55, Quantity: 5, Fair: 0.55, HasModelFair: false})
+	if err := d.Settle(ctx, "m1", 0, false, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	pts, err := d.RecentHealth(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pts) != 1 {
+		t.Fatalf("RecentHealth returned %d points, want 1 (the placeholder-fair fill must be excluded): %+v", len(pts), pts)
+	}
+	if pts[0].Fair != 0.70 {
+		t.Errorf("RecentHealth returned fair=%.2f, want the genuine prediction 0.70, not the placeholder", pts[0].Fair)
+	}
+}
+
 func mustFill(t *testing.T, d *DB, f FillRow) {
 	t.Helper()
 	if f.Key == "" {

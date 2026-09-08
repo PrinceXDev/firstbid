@@ -62,8 +62,10 @@ function TopBar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
         <nav className="hidden items-center gap-6 md:flex" aria-label="Sections">
           <NavLink href="/">Field</NavLink>
           <NavLink href="/evidence/">Evidence</NavLink>
+          <NavLink href="/coverage/">Coverage</NavLink>
           <NavLink href="/trace/">Trace</NavLink>
           <NavLink href="/ledger/">Ledger</NavLink>
+          <NavLink href="/system/">System</NavLink>
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
@@ -111,8 +113,10 @@ function MobileNav() {
     >
       <NavLink href="/">Field</NavLink>
       <NavLink href="/evidence/">Evidence</NavLink>
+      <NavLink href="/coverage/">Coverage</NavLink>
       <NavLink href="/trace/">Trace</NavLink>
       <NavLink href="/ledger/">Ledger</NavLink>
+      <NavLink href="/system/">System</NavLink>
     </nav>
   );
 }

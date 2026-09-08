@@ -1,7 +1,13 @@
 # secrets and local state
 .env
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
+
+# local Claude Code session config (dev-server launch config, task locks) --
+# not shared project setup, just this machine's
+.claude/
 
 # dependencies and local build caches
 node_modules/

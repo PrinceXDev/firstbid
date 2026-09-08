@@ -11,6 +11,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite" // pure-Go driver: no cgo, so the repo builds anywhere
@@ -48,6 +49,12 @@ CREATE TABLE IF NOT EXISTS fills (
   price       REAL NOT NULL,      -- realised fill price, side's own terms
   quantity    REAL NOT NULL,
   fair        REAL NOT NULL,      -- fair value at the moment of the fill
+  -- 0 for a fill reconciled from a counterparty's transaction: reconcile()
+  -- has no decision-time model snapshot for those, so it stores the
+  -- execution price in "fair" instead, which makes P&L's edge contribution
+  -- honestly zero. Scoring that placeholder as a probability in the live
+  -- health check would measure price-vs-outcome, not model calibration.
+  has_model_fair INTEGER NOT NULL DEFAULT 1,
   created_at  INTEGER NOT NULL
 );
 
@@ -66,6 +73,32 @@ CREATE TABLE IF NOT EXISTS windows (
 
 CREATE INDEX IF NOT EXISTS idx_fills_market ON fills(market_id);
 CREATE INDEX IF NOT EXISTS idx_orders_market ON orders(market_id);
+
+-- One row per submitted order: how long signing, RPC submission and mining
+-- together took. The engine and the dashboard are separate processes -- this
+-- table is how a live latency reading crosses that boundary, the same way
+-- orders/fills/windows already do.
+CREATE TABLE IF NOT EXISTS latencies (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  market_id   TEXT NOT NULL,
+  phase       TEXT NOT NULL,      -- submit-to-receipt (only phase measured so far)
+  millis      REAL NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_latencies_created ON latencies(created_at);
+
+-- Current aggregate position per asset, across every window open on that
+-- asset right now. One row per asset, replaced on every inventory change.
+-- Per-window inventory (see the "orders" and "fills" tables joined against
+-- "windows") caps a single market; this is the number a cross-window risk
+-- cap must consult, and the only one that would have caught the 2026-09-03
+-- loss if it had spanned two windows instead of one.
+CREATE TABLE IF NOT EXISTS exposure (
+  asset       TEXT PRIMARY KEY,
+  net_up      REAL NOT NULL,      -- signed: positive = net long Up
+  cap         REAL NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
 `
 
 func Open(path string) (*DB, error) {
@@ -82,6 +115,18 @@ func Open(path string) (*DB, error) {
 	}
 	if _, err := d.Exec(schema); err != nil {
 		return nil, fmt.Errorf("schema: %w", err)
+	}
+	// CREATE TABLE IF NOT EXISTS does not add columns to a table that already
+	// exists — a database from before has_model_fair was introduced needs an
+	// explicit migration, or every fill written before this column existed
+	// would silently read back as 0 (NOT NULL with no default on ALTER means
+	// SQLite backfills existing rows with the column's DEFAULT, so this also
+	// correctly treats pre-existing fills as having a real model fair value,
+	// which is what they always were).
+	if _, err := d.Exec(`ALTER TABLE fills ADD COLUMN has_model_fair INTEGER NOT NULL DEFAULT 1`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("migrate fills.has_model_fair: %w", err)
+		}
 	}
 	return &DB{sql: d}, nil
 }
@@ -128,6 +173,12 @@ type FillRow struct {
 	Price    float64
 	Quantity float64
 	Fair     float64
+	// HasModelFair is false only for a fill reconciled from a counterparty's
+	// transaction, where Fair holds the execution price rather than a genuine
+	// decision-time model value. Callers must set this explicitly -- there is
+	// no safe default, since a caller that forgets would silently score a
+	// price as a prediction.
+	HasModelFair bool
 }
 
 // RecordFill is idempotent: re-recording a fill we already have is a no-op.
@@ -137,9 +188,9 @@ func (d *DB) RecordFill(ctx context.Context, f FillRow) error {
 	}
 	_, err := d.sql.ExecContext(ctx, `
 		INSERT OR IGNORE INTO fills
-		(fill_key, tx_hash, market_id, kind, price, quantity, fair, created_at)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		f.Key, f.TxHash, f.MarketID, f.Kind, f.Price, f.Quantity, f.Fair, time.Now().Unix())
+		(fill_key, tx_hash, market_id, kind, price, quantity, fair, has_model_fair, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		f.Key, f.TxHash, f.MarketID, f.Kind, f.Price, f.Quantity, f.Fair, b2i(f.HasModelFair), time.Now().Unix())
 	return err
 }
 
@@ -407,6 +458,184 @@ func (d *DB) Windows(ctx context.Context) ([]PendingWindow, error) {
 		}
 		w.Voided = voided == 1
 		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// OpenPosition is one market's net signed inventory, for restoring the
+// engine's in-memory exposure state after a restart.
+type OpenPosition struct {
+	MarketID string
+	Asset    string
+	Signed   float64 // net Up contracts: BUY_UP fills add, BUY_DN fills subtract
+}
+
+// OpenPositions sums signed fills per market for every window that has not
+// settled yet. A fresh Engine starts with empty in-memory inventory; without
+// this, a restart mid-window treats real, still-open positions as flat until
+// new fills happen to repopulate the map, letting the asset exposure cap pass
+// trades it would otherwise have refused.
+func (d *DB) OpenPositions(ctx context.Context) ([]OpenPosition, error) {
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT f.market_id, w.asset,
+		       SUM(CASE WHEN f.kind = 'BUY_UP' THEN f.quantity ELSE -f.quantity END) AS signed
+		FROM fills f
+		JOIN windows w ON w.market_id = f.market_id
+		WHERE w.settled_at IS NULL
+		GROUP BY f.market_id, w.asset`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OpenPosition{}
+	for rows.Next() {
+		var p OpenPosition
+		if err := rows.Scan(&p.MarketID, &p.Asset, &p.Signed); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ---- live telemetry: latency & exposure -----------------------------------
+
+// RecordLatency logs how long one submitted order took from send to mined
+// receipt. Called by the engine only -- the dashboard reads this table, never
+// writes it, so a stale reading is a stopped engine, not a race.
+func (d *DB) RecordLatency(ctx context.Context, marketID, phase string, millis float64) error {
+	_, err := d.sql.ExecContext(ctx, `
+		INSERT INTO latencies (market_id, phase, millis, created_at) VALUES (?,?,?,?)`,
+		marketID, phase, millis, time.Now().Unix())
+	return err
+}
+
+// LatencySample is one measured order's submit-to-receipt time.
+type LatencySample struct {
+	MarketID  string  `json:"marketId"`
+	Phase     string  `json:"phase"`
+	Millis    float64 `json:"millis"`
+	CreatedAt int64   `json:"createdAt"`
+}
+
+// RecentLatencies returns the most recent latency samples, newest first, for
+// the dashboard to summarise. Percentiles belong to the caller: returning raw
+// samples rather than a pre-computed mean keeps the ledger from silently
+// changing what "latency" means as the definition evolves.
+func (d *DB) RecentLatencies(ctx context.Context, limit int) ([]LatencySample, error) {
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT market_id, phase, millis, created_at FROM latencies
+		ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LatencySample{}
+	for rows.Next() {
+		var s LatencySample
+		if err := rows.Scan(&s.MarketID, &s.Phase, &s.Millis, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// UpsertExposure records the engine's current aggregate position for one
+// asset, across every window open on it right now, and the cap it is being
+// held against. Replaced wholesale on every change rather than accumulated,
+// because the dashboard needs the CURRENT number, not a history of deltas.
+func (d *DB) UpsertExposure(ctx context.Context, asset string, netUp, cap float64) error {
+	_, err := d.sql.ExecContext(ctx, `
+		INSERT INTO exposure (asset, net_up, cap, updated_at) VALUES (?,?,?,?)
+		ON CONFLICT(asset) DO UPDATE SET net_up=excluded.net_up, cap=excluded.cap, updated_at=excluded.updated_at`,
+		asset, netUp, cap, time.Now().Unix())
+	return err
+}
+
+// ExposureRow is one asset's current aggregate position, for display.
+type ExposureRow struct {
+	Asset     string  `json:"asset"`
+	NetUp     float64 `json:"netUp"`
+	Cap       float64 `json:"cap"`
+	UpdatedAt int64   `json:"updatedAt"`
+}
+
+// Exposures lists every asset's current aggregate position.
+func (d *DB) Exposures(ctx context.Context) ([]ExposureRow, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT asset, net_up, cap, updated_at FROM exposure ORDER BY asset`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ExposureRow{}
+	for rows.Next() {
+		var e ExposureRow
+		if err := rows.Scan(&e.Asset, &e.NetUp, &e.Cap, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ---- live model health -----------------------------------------------------
+
+// HealthPoint is one settled, filled contract scored against the fair value
+// it was bought at -- the live equivalent of one row in the offline backtest.
+type HealthPoint struct {
+	SettledAt int64   `json:"settledAt"`
+	Fair      float64 `json:"fair"`  // side-adjusted fair value at fill time
+	Value     float64 `json:"value"` // 1, 0, or 0.5 on a void
+}
+
+// RecentHealth returns the last `limit` settled, filled contracts in
+// settlement order, for a rolling live Brier score. It is the production
+// analogue of docs/AUTOPSY.md's offline backtest: the same score, computed
+// continuously against what the engine has actually traded rather than once
+// against history, so a drift in live calibration is visible before it costs
+// as much as the 2026-09-03 loss did.
+//
+// Excludes fills where has_model_fair = 0: those are reconciled from a
+// counterparty's transaction and carry the execution price in "fair", not a
+// genuine decision-time prediction. Scoring them would measure price-vs-
+// outcome calibration rather than the engine model this check exists to watch.
+func (d *DB) RecentHealth(ctx context.Context, limit int) ([]HealthPoint, error) {
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT w.settled_at, w.winner, w.voided, f.kind, f.fair
+		FROM fills f
+		JOIN windows w ON w.market_id = f.market_id
+		WHERE w.settled_at IS NOT NULL AND f.has_model_fair = 1
+		ORDER BY w.settled_at DESC, f.id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HealthPoint{}
+	for rows.Next() {
+		var settledAt int64
+		var winner sql.NullInt64
+		var voided int
+		var kind string
+		var fair float64
+		if err := rows.Scan(&settledAt, &winner, &voided, &kind, &fair); err != nil {
+			return nil, err
+		}
+		sideFair := fair
+		if kind == "BUY_DN" {
+			sideFair = 1 - fair
+		}
+		var value float64
+		switch {
+		case voided == 1:
+			value = 0.5
+		case kind == "BUY_UP":
+			value = boolTo(winner.Valid && winner.Int64 == 0)
+		case kind == "BUY_DN":
+			value = boolTo(winner.Valid && winner.Int64 == 1)
+		}
+		out = append(out, HealthPoint{SettledAt: settledAt, Fair: sideFair, Value: value})
 	}
 	return out, rows.Err()
 }

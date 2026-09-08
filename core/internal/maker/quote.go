@@ -45,6 +45,15 @@ type Params struct {
 	// TakeCooldown is the minimum gap between takes in the same window, so a
 	// book that stays mispriced for a minute cannot be crossed every tick.
 	TakeCooldown time.Duration
+
+	// MaxAssetExposure caps NET Up contracts held on one asset across every
+	// window open on it simultaneously -- not just the window doing the take.
+	// MaxInventory already caps a single window; it does nothing to stop two
+	// windows on the same asset each sitting at their own cap while agreeing
+	// with each other, which is the same correlated-bet failure the 2026-09-03
+	// post-mortem found, just spread across windows instead of takes within
+	// one. Zero disables the check.
+	MaxAssetExposure float64
 }
 
 func DefaultParams() Params {
@@ -66,6 +75,12 @@ func DefaultParams() Params {
 		MaxTakesPerMarket: 2,
 		MaxTakeNotional:   15,
 		TakeCooldown:      45 * time.Second,
+
+		// Tighter than 2x MaxInventory on purpose: two simultaneously-live
+		// windows on the same asset (e.g. BTC/60m and BTC/240m, both live under
+		// docs/COVERAGE.md) are directionally correlated, so their combined risk
+		// should be capped below what either could reach alone twice over.
+		MaxAssetExposure: 60,
 	}
 }
 

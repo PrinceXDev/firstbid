@@ -155,6 +155,49 @@ type cadence struct {
 	intervalSec int64
 }
 
+// CoverageNote is the human-readable evidence behind one cadence's
+// quotable/refused verdict -- the same measurement recorded in
+// docs/COVERAGE.md, made machine-readable so the live dashboard can show it
+// instead of it living only in a markdown file nobody watching the product
+// will read. Every note below was measured by cmd/volscale or cmd/calibrate;
+// none is asserted.
+type CoverageNote struct {
+	Asset       string
+	IntervalSec int64
+	Quotable    bool
+	Reason      string
+}
+
+var coverageNotes = []CoverageNote{
+	{"BTC", 300, true, "resolved-window fit, n=512"},
+	{"BTC", 900, true, "resolved-window fit, n=2880"},
+	{"BTC", 3600, true, "resolved-window fit, n=720"},
+	{"ETH", 300, true, "resolved-window fit, n=470"},
+	{"ETH", 900, true, "resolved-window fit, n=2880"},
+	{"ETH", 3600, true, "resolved-window fit, n=720"},
+	{"BTC", 14400, true, "horizon-scaled from the 900s anchor; realised sigma +11.1% vs sqrt(t), n=177 non-overlapping candles (cmd/volscale)"},
+	{"ETH", 14400, false, "sqrt(t) deviates +18.2% at n=177 -- the identical measurement that admitted BTC/240m refuses this one"},
+	{"BTC", 86400, false, "n=27 independent 24h returns in 30 days -- below where a regime is separable from noise"},
+	{"ETH", 86400, false, "n=27 independent 24h returns in 30 days -- below where a regime is separable from noise"},
+	{"BTC", 3888000, false, "under one independent 45-day return in 30 days of history -- not short of a model, short of evidence"},
+	{"ETH", 3888000, false, "under one independent 45-day return in 30 days of history -- not short of a model, short of evidence"},
+}
+
+// CoverageReport returns the recorded evidence for one cadence. A cadence with
+// no entry at all -- never measured by cmd/volscale or cmd/calibrate -- refuses
+// by default rather than being silently treated as covered.
+func CoverageReport(asset string, intervalSec int64) CoverageNote {
+	for _, n := range coverageNotes {
+		if n.Asset == asset && n.IntervalSec == intervalSec {
+			return n
+		}
+	}
+	return CoverageNote{
+		Asset: asset, IntervalSec: intervalSec, Quotable: false,
+		Reason: "never measured -- no resolved-window fit and no horizon-scaled evidence recorded",
+	}
+}
+
 // SigmaPerMin returns the calibrated volatility the engine prices with: the raw
 // measured value scaled by Calibration.
 func SigmaPerMin(asset string, intervalSec int64) (float64, bool) {

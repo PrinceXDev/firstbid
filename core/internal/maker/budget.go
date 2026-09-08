@@ -2,6 +2,7 @@ package maker
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -84,4 +85,21 @@ func (b *TakeBudget) Spent() (takes int, notional float64) {
 		return 0, 0
 	}
 	return b.takes, b.notional
+}
+
+// ExposureAllows checks a prospective take against the cross-window
+// asset-level exposure cap: current net Up exposure on the asset, plus this
+// take's signed delta (positive for BuyUp, negative for BuyDn), must not
+// exceed cap in absolute value.
+//
+// This is deliberately separate from TakeBudget: TakeBudget bounds one
+// window's own repeated action, this bounds several windows on the same
+// asset agreeing with each other, and collapsing the two would hide which
+// guard actually fired when a take is refused. cap <= 0 disables the check.
+func ExposureAllows(current, delta, cap float64) (ok bool, prospective float64) {
+	prospective = current + delta
+	if cap <= 0 {
+		return true, prospective
+	}
+	return math.Abs(prospective) <= cap, prospective
 }

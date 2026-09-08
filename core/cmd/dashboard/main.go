@@ -261,7 +261,28 @@ func (s *server) pnl(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"windows": []any{}, "totals": ledger.Totals{}})
 		return
 	}
-	as, err := s.ledger.Attribute(r.Context())
+
+	// ?asset=BTC&interval=14400 isolates one cadence's P&L (e.g. BTC/240m) from
+	// the all-cadence total, so a newly-admitted cadence can be judged on its
+	// own record rather than buried in it. Either param alone still narrows.
+	asset := r.URL.Query().Get("asset")
+	var intervalSec int64
+	if v := r.URL.Query().Get("interval"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			http.Error(w, `{"error":"interval must be seconds"}`, http.StatusBadRequest)
+			return
+		}
+		intervalSec = n
+	}
+
+	var as []ledger.Attribution
+	var err error
+	if asset != "" || intervalSec != 0 {
+		as, err = s.ledger.AttributeCadence(r.Context(), asset, intervalSec)
+	} else {
+		as, err = s.ledger.Attribute(r.Context())
+	}
 	if err != nil {
 		http.Error(w, `{"error":"ledger read failed"}`, http.StatusInternalServerError)
 		return

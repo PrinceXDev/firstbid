@@ -53,6 +53,8 @@ export type Calibration = {
 export type Attribution = {
   MarketID: string;
   Label: string;
+  Asset: string;
+  IntervalSec: number;
   Contracts: number;
   Cost: number;
   Payout: number;

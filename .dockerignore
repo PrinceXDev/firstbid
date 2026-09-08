@@ -1,0 +1,26 @@
+.git
+.github
+
+# secrets and local state
+**/.env
+**/.env.*
+!**/.env.example
+*.db
+*.sqlite
+core/firstbid.db
+
+# dependencies and local build caches
+**/node_modules
+web/.next
+web/out
+**/*.exe
+
+# docs unrelated to the container build (kept out to shrink the build context)
+docs/AUTOPSY.md
+docs/ARCHITECTURE.md
+docs/DESIGN.md
+docs/DEMO.md
+docs/COVERAGE.md
+docs/SDK-FEEDBACK.md
+
+README.md

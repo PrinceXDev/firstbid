@@ -15,6 +15,7 @@ export default function Page() {
 function Ledger() {
   const [d, setD] = useState<PnL | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [cadence, setCadence] = useState<string>("all");
 
   useEffect(() => {
     const ac = new AbortController();
@@ -46,8 +47,14 @@ function Ledger() {
     );
   if (!d) return <Wrap><div className="panel" style={{ height: 360 }} aria-busy="true" /></Wrap>;
 
-  const t = d.totals;
-  const traded = d.windows.filter((w) => w.Fills > 0);
+  const allTraded = d.windows.filter((w) => w.Fills > 0);
+  // Grouping by Label rather than Asset+IntervalSec works because the engine
+  // formats it as exactly that cadence, e.g. "BTC/240m" — see engine.go's
+  // marketLoop. It repeats across every window of that cadence, so it is
+  // already the grouping key, not just a display string.
+  const cadences = Array.from(new Set(allTraded.map((w) => w.Label))).sort();
+  const traded = cadence === "all" ? allTraded : allTraded.filter((w) => w.Label === cadence);
+  const t = cadence === "all" ? d.totals : sumOf(traded);
 
   return (
     <Wrap>
@@ -60,7 +67,7 @@ function Ledger() {
         </p>
       </header>
 
-      {traded.length === 0 ? (
+      {allTraded.length === 0 ? (
         <div className="panel px-8 py-14 text-center">
           <div className="t-h2 mb-2">No settled windows with fills yet.</div>
           <p className="mx-auto max-w-[52ch] text-[14px]" style={{ color: "var(--color-ink-2)" }}>
@@ -70,6 +77,10 @@ function Ledger() {
         </div>
       ) : (
         <>
+          {cadences.length > 1 && (
+            <CadenceFilter cadences={cadences} value={cadence} onChange={setCadence} />
+          )}
+
           <Split edge={t.Edge} selection={t.Selection} net={t.Net} />
 
           <div className="mt-8 mb-6 flex flex-wrap gap-x-12 gap-y-5">
@@ -253,6 +264,59 @@ function Row({ w }: { w: Attribution }) {
         {signed(w.Net, 3)}
       </td>
     </tr>
+  );
+}
+
+/** Mirrors ledger.Sum in Go: recomputed client-side when a cadence filter narrows the rows. */
+function sumOf(rows: Attribution[]): PnL["totals"] {
+  const t = { Windows: 0, Fills: 0, Contracts: 0, Edge: 0, Selection: 0, Net: 0 };
+  for (const w of rows) {
+    if (w.Fills === 0) continue;
+    t.Windows += 1;
+    t.Fills += w.Fills;
+    t.Contracts += w.Contracts;
+    t.Edge += w.Edge;
+    t.Selection += w.Selection;
+    t.Net += w.Net;
+  }
+  return t;
+}
+
+/**
+ * Isolates one cadence's record from the rest — e.g. BTC/240m, only recently
+ * admitted into coverage (docs/COVERAGE.md), judged on its own fills rather
+ * than folded into every other cadence's total.
+ */
+function CadenceFilter({
+  cadences,
+  value,
+  onChange,
+}: {
+  cadences: string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const options = ["all", ...cadences];
+  return (
+    <div className="mb-6 flex flex-wrap gap-2">
+      {options.map((c) => {
+        const active = c === value;
+        return (
+          <button
+            key={c}
+            onClick={() => onChange(c)}
+            className="rounded-full px-3 py-1 font-mono text-[12px] transition-colors"
+            style={{
+              border: `1px solid ${active ? "var(--color-ink)" : "var(--color-hairline)"}`,
+              background: active ? "var(--color-ink)" : "transparent",
+              color: active ? "var(--color-void)" : "var(--color-ink-2)",
+            }}
+          >
+            {c === "all" ? "all cadences" : c}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

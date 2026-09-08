@@ -261,7 +261,35 @@ func (s *server) pnl(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"windows": []any{}, "totals": ledger.Totals{}})
 		return
 	}
-	as, err := s.ledger.Attribute(r.Context())
+
+	// ?asset=BTC&interval=14400 isolates one cadence's P&L (e.g. BTC/240m) from
+	// the all-cadence total, so a newly-admitted cadence can be judged on its
+	// own record rather than buried in it. Either param alone still narrows.
+	//
+	// Zero doubles as the ledger's internal sentinel for "no interval filter",
+	// so an explicit interval=0 (or a negative value, which is never a real
+	// cadence) must be rejected here rather than silently treated as absent —
+	// otherwise it would return every window instead of filtering to none.
+	asset := r.URL.Query().Get("asset")
+	intervalParam := r.URL.Query().Get("interval")
+	hasInterval := intervalParam != ""
+	var intervalSec int64
+	if hasInterval {
+		n, err := strconv.ParseInt(intervalParam, 10, 64)
+		if err != nil || n <= 0 {
+			http.Error(w, `{"error":"interval must be a positive number of seconds"}`, http.StatusBadRequest)
+			return
+		}
+		intervalSec = n
+	}
+
+	var as []ledger.Attribution
+	var err error
+	if asset != "" || hasInterval {
+		as, err = s.ledger.AttributeCadence(r.Context(), asset, intervalSec)
+	} else {
+		as, err = s.ledger.Attribute(r.Context())
+	}
 	if err != nil {
 		http.Error(w, `{"error":"ledger read failed"}`, http.StatusInternalServerError)
 		return

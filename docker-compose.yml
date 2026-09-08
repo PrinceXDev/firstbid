@@ -1,0 +1,35 @@
+services:
+  # Read-only evidence UI + API: calibration, live book vs fair value, P&L.
+  # Talks to the public Somnia Shannon testnet endpoints baked into the
+  # binary — no credentials required. This is the service a judge runs.
+  dashboard:
+    build: .
+    image: firstbid-dashboard
+    ports:
+      - "8080:8080"
+    volumes:
+      - ledger:/data
+    restart: unless-stopped
+
+  # The quoting engine. Defaults to DRY RUN (prices windows, logs the quotes
+  # it would place, signs nothing) so it is safe to start with no key set.
+  # Passing FIRSTBID_PRIVATE_KEY and adding "-live" to `command` makes it
+  # sign and send real testnet orders — never put a real/mainnet key here.
+  # Not started by `docker compose up` on its own; run with:
+  #   docker compose --profile engine up --build
+  engine:
+    build: .
+    image: firstbid-dashboard
+    profiles: ["engine"]
+    entrypoint: ["/app/firstbid"]
+    command: ["-net=testnet", "-db=/data/firstbid.db"]
+    environment:
+      - FIRSTBID_PRIVATE_KEY=${FIRSTBID_PRIVATE_KEY:-}
+    volumes:
+      - ledger:/data
+    restart: unless-stopped
+
+volumes:
+  # Shared SQLite P&L ledger, so the dashboard's P&L panel reflects what the
+  # engine records.
+  ledger:

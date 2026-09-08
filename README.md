@@ -365,6 +365,102 @@ Gas: [Somnia Shannon faucet](https://cloud.google.com/application/web3/faucet/so
 
 ---
 
+## Docker
+
+The dashboard needs no Node/Go toolchain on the host and no credentials — it
+reads the public Somnia Shannon testnet indexer, RPC and price-feed endpoints
+that are hardcoded in `internal/venue`. This is the one-command path for a
+judge: clone, `docker compose up --build`, open `localhost:8080`.
+
+### Quick start (dashboard only)
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:8080`. Stop with `docker compose down` (add `-v` to
+also drop the ledger volume).
+
+### Build and run without Compose
+
+```bash
+docker build -t firstbid-dashboard .
+docker run --rm -p 8080:8080 -v firstbid-ledger:/data firstbid-dashboard
+```
+
+### The engine (optional, off by default)
+
+`docker compose up` starts only the read-only dashboard. The quoting engine
+(`cmd/firstbid`) is a second service behind a Compose **profile**, so it never
+starts by accident:
+
+```bash
+docker compose --profile engine up --build
+```
+
+It defaults to **DRY RUN**: it prices live windows and logs the quotes it
+would place, but signs nothing, and needs no key. To actually rest orders on
+the Shannon testnet book, set `FIRSTBID_PRIVATE_KEY` (see `.env.example`) and
+add `-live` to the `engine` service's `command:` in `docker-compose.yml`:
+
+```bash
+cp .env.example .env   # fill in a throwaway Shannon testnet key
+docker compose --profile engine up --build
+```
+
+`-live` refuses to run against mainnet regardless (see [`cmd/firstbid`](core/cmd/firstbid/main.go)) —
+never put a real/mainnet key in `.env`.
+
+### Environment variables
+
+| Variable | Required by | Notes |
+| --- | --- | --- |
+| `FIRSTBID_PRIVATE_KEY` | `engine` service, only when its `command:` includes `-live` | Throwaway Shannon testnet key. Never committed, never baked into the image. |
+
+The `dashboard` service takes no environment variables at all.
+
+### Ports
+
+| Port | Service | Purpose |
+| --- | --- | --- |
+| `8080` | `dashboard` | UI + `/api/*` (calibration, live book, P&L, traces) |
+
+### Persistence
+
+Both services can share one SQLite P&L ledger (`internal/ledger`) through the
+`ledger` named volume, mounted at `/data`, so the dashboard's P&L panel
+reflects fills the engine records. No external database is required.
+
+### Verified
+
+Built and run locally against the live Shannon testnet: image builds
+(Next.js static export → embedded into the Go binary → two static, cgo-free
+Go binaries on `gcr.io/distroless/static-debian12:nonroot`, ~46 MB), the
+container starts as non-root, serves the UI and every `/api/*` route
+(`/api/live` returns real BTC/ETH windows read from the public indexer and
+price feed), the `engine` profile runs in DRY RUN with no key present, and the
+exported image filesystem carries no `.env` or key material.
+
+**Not verified in this environment** (no funded testnet key was available):
+`-live` order signing and submission, and P&L accumulating from real fills.
+Both paths are unchanged from the existing `go run` flow — Docker only changes
+how the same binaries are built and started.
+
+### Troubleshooting
+
+- **`/api/live` returns an empty list or errors** — the container needs
+  outbound internet access to `*.somnia.network` / `*.somnia.host`; check
+  your Docker network/proxy settings.
+- **Engine won't start with `-live`** — `FIRSTBID_PRIVATE_KEY` must be set
+  (via `.env`) and `-net=mainnet -live` is refused by design; testnet only.
+- **Stale UI after a code change** — `docker compose up --build` (or
+  `docker build --no-cache`) to force the Next.js export and Go binaries to
+  rebuild; layer caching otherwise reuses the previous `npm ci`/`go build` output.
+- **Reset all state** — `docker compose down -v` removes the `ledger` volume
+  (the SQLite P&L history) along with the containers.
+
+---
+
 ## Repository
 
 ```

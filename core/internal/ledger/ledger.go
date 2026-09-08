@@ -69,7 +69,14 @@ CREATE INDEX IF NOT EXISTS idx_orders_market ON orders(market_id);
 `
 
 func Open(path string) (*DB, error) {
-	d, err := sql.Open("sqlite", path)
+	// The dashboard and the live engine can both hold this file open at once
+	// (e.g. sharing one Docker volume), one reading while the other writes.
+	// Without WAL a writer's transaction locks the whole file against readers,
+	// and without a busy timeout the loser of that race fails immediately
+	// instead of waiting — which is how a window, fill or settlement goes
+	// missing from attribution without either side noticing.
+	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000"
+	d, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -193,9 +200,11 @@ func (d *DB) Settle(ctx context.Context, marketID string, winner int, voided boo
 // Reporting them separately is the difference between "we made money" and
 // "we know why we made money".
 type Attribution struct {
-	MarketID  string
-	Label     string
-	Contracts float64
+	MarketID    string
+	Label       string
+	Asset       string
+	IntervalSec int64
+	Contracts   float64
 	Cost      float64
 	Payout    float64
 	Edge      float64
@@ -220,7 +229,7 @@ func (a Attribution) Verdict() string {
 
 // Attribute computes realised P&L for every settled window we traded.
 func (d *DB) Attribute(ctx context.Context) ([]Attribution, error) {
-	return d.attribute(ctx, "")
+	return d.attribute(ctx, "", "", 0)
 }
 
 // AttributeMarket computes realised P&L for a single settled window.
@@ -229,7 +238,7 @@ func (d *DB) Attribute(ctx context.Context) ([]Attribution, error) {
 // endpoint that grows linearly with total history is a trace endpoint that
 // stops working once the engine has been running for a while.
 func (d *DB) AttributeMarket(ctx context.Context, marketID string) (*Attribution, error) {
-	as, err := d.attribute(ctx, marketID)
+	as, err := d.attribute(ctx, marketID, "", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -239,9 +248,17 @@ func (d *DB) AttributeMarket(ctx context.Context, marketID string) (*Attribution
 	return &as[0], nil
 }
 
-func (d *DB) attribute(ctx context.Context, onlyMarket string) ([]Attribution, error) {
+// AttributeCadence computes realised P&L for one asset/interval pair, e.g.
+// ("BTC", 14400) for BTC/240m. It exists so a cadence that was only just
+// admitted into coverage — see docs/COVERAGE.md — can be judged on its own
+// P&L rather than buried in the all-cadence total.
+func (d *DB) AttributeCadence(ctx context.Context, asset string, intervalSec int64) ([]Attribution, error) {
+	return d.attribute(ctx, "", asset, intervalSec)
+}
+
+func (d *DB) attribute(ctx context.Context, onlyMarket, onlyAsset string, onlyIntervalSec int64) ([]Attribution, error) {
 	query := `
-		SELECT w.market_id, w.label, w.winner, w.voided,
+		SELECT w.market_id, w.label, w.asset, w.interval_sec, w.winner, w.voided,
 		       f.kind, f.price, f.quantity, f.fair
 		FROM windows w
 		JOIN fills f ON f.market_id = w.market_id
@@ -250,6 +267,14 @@ func (d *DB) attribute(ctx context.Context, onlyMarket string) ([]Attribution, e
 	if onlyMarket != "" {
 		query += ` AND w.market_id = ?`
 		args = append(args, onlyMarket)
+	}
+	if onlyAsset != "" {
+		query += ` AND w.asset = ?`
+		args = append(args, onlyAsset)
+	}
+	if onlyIntervalSec != 0 {
+		query += ` AND w.interval_sec = ?`
+		args = append(args, onlyIntervalSec)
 	}
 	query += ` ORDER BY w.expiry ASC`
 
@@ -263,16 +288,17 @@ func (d *DB) attribute(ctx context.Context, onlyMarket string) ([]Attribution, e
 	var order []string
 
 	for rows.Next() {
-		var mid, label, kind string
+		var mid, label, asset, kind string
+		var intervalSec int64
 		var winner sql.NullInt64
 		var voided int
 		var price, qty, fair float64
-		if err := rows.Scan(&mid, &label, &winner, &voided, &kind, &price, &qty, &fair); err != nil {
+		if err := rows.Scan(&mid, &label, &asset, &intervalSec, &winner, &voided, &kind, &price, &qty, &fair); err != nil {
 			return nil, err
 		}
 		a, ok := byMarket[mid]
 		if !ok {
-			a = &Attribution{MarketID: mid, Label: label, Voided: voided == 1, Winner: -1}
+			a = &Attribution{MarketID: mid, Label: label, Asset: asset, IntervalSec: intervalSec, Voided: voided == 1, Winner: -1}
 			if winner.Valid {
 				a.Winner = int(winner.Int64)
 			}

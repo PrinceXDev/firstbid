@@ -48,7 +48,22 @@ type Engine struct {
 	// a separately maintained one would not, unless every removal path also
 	// remembered to subtract from it).
 	marketAsset map[string]string
-	stats       Stats
+	// A resting post-only order does not change realised exposure the moment
+	// it is placed -- it changes it later, asynchronously, when a
+	// counterparty fills it (often discovered only by reconcile(), not this
+	// engine's own transaction). Gating a NEW resting order only against
+	// CURRENT realised exposure is not enough: several resting orders across
+	// different windows can each individually pass that check while none of
+	// them has filled yet, and then all fill later and together breach the
+	// cap with nothing left to refuse at that point. These track the size of
+	// the currently-resting order on each side of each market, so a new
+	// resting order can be checked against the WORST CASE for its own
+	// direction -- realised exposure plus every other order already resting
+	// the same way, as if all of them filled and none of the opposite side
+	// did.
+	restingUp map[string]float64 // marketId -> size of our resting BuyUp order, if any
+	restingDn map[string]float64 // marketId -> size of our resting BuyDn order, if any
+	stats     Stats
 }
 
 type Stats struct {
@@ -103,6 +118,8 @@ func New(c *venue.Client, tr *venue.Trader, p Params, feedURL string, lg *log.Lo
 		running:     map[string]context.CancelFunc{},
 		inv:         map[string]float64{},
 		marketAsset: map[string]string{},
+		restingUp:   map[string]float64{},
+		restingDn:   map[string]float64{},
 	}
 }
 
@@ -251,6 +268,12 @@ func (e *Engine) reap(marketID string) {
 	asset := e.marketAsset[marketID]
 	delete(e.inv, marketID)
 	delete(e.marketAsset, marketID)
+	// Any order still resting on this market ages off via its own on-chain
+	// expiry (capped at the window's own expiry, minus a margin -- see
+	// expireNsFor), so it can no longer fill once the window is over. Its
+	// exposure reservation must not outlive it.
+	delete(e.restingUp, marketID)
+	delete(e.restingDn, marketID)
 	e.mu.Unlock()
 	e.bump(func(s *Stats) { s.Reaped++ })
 	// The dashboard's persisted exposure row is a snapshot from the last fill,
@@ -450,6 +473,10 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 		// resting orders start self-matching the new ones.
 		e.cancelResting(ctx, m, label)
 		resting.clear()
+		// The cancelled orders are no longer at risk of filling; release their
+		// exposure reservation too, or every later quote on this asset would
+		// keep being checked against risk that no longer exists.
+		e.clearResting(im.MarketID)
 
 		if q.SkipBid && q.SkipAsk {
 			e.bump(func(s *Stats) { s.Skips++ })
@@ -685,23 +712,14 @@ func (e *Engine) handle(ctx context.Context, in Intent) {
 	// not: two takes on the same asset can no longer both pass against the
 	// same stale number, because the second one is only evaluated after the
 	// first has either landed (and been recorded) or been rejected.
-	//
-	// It applies to every BUY, take or resting maker order alike -- a
-	// two-sided quote's Up and Down legs are placed as two separate Intents
-	// through this same path, so a resting order that would push realised
-	// exposure past the cap IF IT FILLED is refused here too, closing the gap
-	// where only the take path used to have this guard. Like MaxInventory,
-	// this bounds REALISED exposure at the moment of placement; it does not
-	// reserve capacity for an order that is merely resting and unfilled, the
-	// same scope MaxInventory itself has always had.
 	delta := in.HumanQty
 	if in.Kind == venue.BuyNo || in.Kind == venue.SellNo {
 		delta = -in.HumanQty
 	}
-	if ok, prospective := ExposureAllows(e.assetExposure(in.Asset), delta, e.Params.MaxAssetExposure); !ok {
+	if ok, prospective := ExposureAllows(e.exposureBaseline(in.Asset, in.Mode, delta), delta, e.Params.MaxAssetExposure); !ok {
 		e.bump(func(s *Stats) { s.ExposureRefused++ })
 		e.Log.Printf("[%s] %-7s %.3f x %.1f  REFUSED asset exposure cap"+
-			" (%s would reach %.1f of %.1f, fair=%.3f)",
+			" (%s would reach %.1f of %.1f including resting orders, fair=%.3f)",
 			in.Label, kindName(in.Kind), in.HumanPx, in.HumanQty, in.Asset, prospective, e.Params.MaxAssetExposure, in.Fair)
 		reply(nil)
 		return
@@ -739,6 +757,22 @@ func (e *Engine) handle(ctx context.Context, in Intent) {
 	e.bump(func(s *Stats) { s.Sent++ })
 	if n := len(res.Fills); n > 0 {
 		e.bump(func(s *Stats) { s.Fills += int64(n) })
+	}
+	if in.Mode == "make" {
+		// Reserve exactly what is still unfilled and actually resting, so the
+		// next order's worst-case check sees this one. A quantity already
+		// filled in this same transaction is realised, not resting -- it is
+		// accounted for below by e.record(), and double-reserving it here
+		// would count it against the cap twice.
+		var filled float64
+		for _, f := range res.Fills {
+			filled += rawToHuman(f.Quantity, in.Dec)
+		}
+		if remaining := in.HumanQty - filled; res.Rested && remaining > 0 {
+			e.setResting(in.MarketID, in.Kind, remaining)
+		} else {
+			e.setResting(in.MarketID, in.Kind, 0)
+		}
 	}
 	if e.Ledger != nil {
 		millis := float64(time.Since(sendStart).Microseconds()) / 1000
@@ -904,6 +938,93 @@ func (e *Engine) assetExposure(asset string) float64 {
 		}
 	}
 	return sum
+}
+
+// assetRestingLong sums the size of every currently-resting BuyUp order on
+// one asset -- the most exposure that could still materialise on the long
+// side if every one of them filled.
+func (e *Engine) assetRestingLong(asset string) float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var sum float64
+	for marketID, sz := range e.restingUp {
+		if e.marketAsset[marketID] == asset {
+			sum += sz
+		}
+	}
+	return sum
+}
+
+// assetRestingShort is assetRestingLong's mirror for resting BuyDn orders.
+func (e *Engine) assetRestingShort(asset string) float64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var sum float64
+	for marketID, sz := range e.restingDn {
+		if e.marketAsset[marketID] == asset {
+			sum += sz
+		}
+	}
+	return sum
+}
+
+// exposureBaseline is what a prospective order of `delta` contracts on
+// `asset` should be checked against before ExposureAllows adds delta to it.
+//
+// A take is IOC and fills synchronously inside the same call that places it,
+// so checking it against current realised exposure IS checking it against
+// the exposure it is about to create.
+//
+// A resting maker order is different: placing it does not mean it filled,
+// only that it now sits on the book, and it may fill much later in a
+// COUNTERPARTY's transaction this engine only learns about through
+// reconcile(). Checking it against realised exposure alone would let several
+// resting orders across different windows each pass this same check while
+// none of them has filled yet -- and then let all of them fill later and
+// together breach the cap with no guarded moment left to refuse anything. So
+// a resting order is checked against the WORST CASE for its own direction:
+// realised exposure plus every other order already resting the same way, as
+// if every one of them filled and none of the opposite side did.
+func (e *Engine) exposureBaseline(asset, mode string, delta float64) float64 {
+	baseline := e.assetExposure(asset)
+	if mode != "make" {
+		return baseline
+	}
+	if delta > 0 {
+		return baseline + e.assetRestingLong(asset)
+	}
+	return baseline - e.assetRestingShort(asset)
+}
+
+// setResting records that a market's resting order on one side is now this
+// size (0 clears it). Called once handle() knows a maker order actually rests
+// on the book, and whenever a fill or a cancel consumes it.
+func (e *Engine) setResting(marketID string, kind venue.OrderKind, size float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if kind == venue.BuyNo || kind == venue.SellNo {
+		if size <= 0 {
+			delete(e.restingDn, marketID)
+		} else {
+			e.restingDn[marketID] = size
+		}
+		return
+	}
+	if size <= 0 {
+		delete(e.restingUp, marketID)
+	} else {
+		e.restingUp[marketID] = size
+	}
+}
+
+// clearResting releases both sides' reservations for one market: it is about
+// to be cancelled and replaced, or the window is over and any order left on
+// the book will age off by itself.
+func (e *Engine) clearResting(marketID string) {
+	e.mu.Lock()
+	delete(e.restingUp, marketID)
+	delete(e.restingDn, marketID)
+	e.mu.Unlock()
 }
 
 // persistExposure recomputes one asset's current exposure and writes it to
@@ -1088,6 +1209,16 @@ func (e *Engine) reconcile(ctx context.Context) {
 			// thing this process ever learns about the market.
 			e.setMarketAsset(f.MarketID, f.Market.Asset)
 			e.addInventory(f.MarketID, signed)
+			// This is exactly the moment a resting order's risk stops being
+			// potential and becomes realised: the reservation from handle()
+			// must be released now, or the same exposure would be counted in
+			// BOTH assetExposure (via addInventory, above) AND
+			// assetRestingLong/Short for as long as the reservation lingered.
+			restingKind := venue.BuyYes
+			if !buyingUp {
+				restingKind = venue.BuyNo
+			}
+			e.setResting(f.MarketID, restingKind, 0)
 			e.persistExposure(ctx, f.Market.Asset)
 			added++
 		}

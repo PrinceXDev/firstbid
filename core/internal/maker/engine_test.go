@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/firstbid/core/internal/ledger"
+	"github.com/firstbid/core/internal/venue"
 )
 
 func testEngine(t *testing.T) *Engine {
@@ -71,6 +72,86 @@ func TestReapForgetsSettledWindowsExposure(t *testing.T) {
 	e.mu.Unlock()
 	if stillTracked {
 		t.Error("reap left btc-60m in marketAsset; it will keep contributing to every future sum")
+	}
+}
+
+// TestRestingOrdersAcrossWindowsAreCapped is the regression test for the bug
+// where the asset exposure cap only ever looked at REALISED exposure: a
+// resting post-only order does not realise anything the moment it is placed,
+// so several resting orders on the same asset across different windows could
+// each individually pass a realised-only check while none had filled yet,
+// and then all fill later -- often discovered asynchronously by reconcile(),
+// with no guarded moment left to refuse anything -- and together breach the
+// cap. This replays that exact shape: BTC/60m's resting Up order, then
+// BTC/240m trying to rest another Up order on top of it.
+func TestRestingOrdersAcrossWindowsAreCapped(t *testing.T) {
+	e := testEngine(t)
+	e.Params.MaxAssetExposure = 60
+	e.mu.Lock()
+	e.marketAsset["btc-60m"] = "BTC"
+	e.marketAsset["btc-240m"] = "BTC"
+	e.mu.Unlock()
+
+	// BTC/60m's Up order rests. Nothing has filled -- realised exposure is
+	// still 0 -- but the reservation now exists.
+	e.setResting("btc-60m", venue.BuyYes, 40)
+
+	// BTC/240m now tries to rest 40 MORE on the same side. A check against
+	// realised exposure alone (still 0) would wrongly allow this: 0+40=40 is
+	// under the cap. The worst-case check must see BTC/60m's already-resting
+	// 40 too.
+	baseline := e.exposureBaseline("BTC", "make", 40)
+	if ok, prospective := ExposureAllows(baseline, 40, e.Params.MaxAssetExposure); ok {
+		t.Fatalf("second window's resting 40 allowed; aggregate would reach %.0f if both filled, cap is %.0f",
+			prospective, e.Params.MaxAssetExposure)
+	}
+
+	// A smaller order that keeps the worst case within the cap must still be
+	// allowed -- the fix must not simply refuse everything.
+	baseline = e.exposureBaseline("BTC", "make", 15)
+	if ok, _ := ExposureAllows(baseline, 15, e.Params.MaxAssetExposure); !ok {
+		t.Errorf("40 (resting) + 15 (new) = 55 refused, want allowed under cap=%.0f", e.Params.MaxAssetExposure)
+	}
+
+	// Once BTC/60m's order is discovered filled (as reconcile() would do:
+	// realise it, then release the reservation), its 40 contracts are still
+	// 40 of the same 60-contract cap -- moving from "resting" to "realised"
+	// must not make room appear that was never there. A genuinely new 40 on
+	// BTC/240m on top of that would total 80 and must still be refused.
+	e.addInventory("btc-60m", 40)
+	e.setResting("btc-60m", venue.BuyYes, 0)
+	baseline = e.exposureBaseline("BTC", "make", 40)
+	if ok, prospective := ExposureAllows(baseline, 40, e.Params.MaxAssetExposure); ok {
+		t.Errorf("BTC/240m's 40 allowed on top of BTC/60m's now-realised 40 (prospective %.0f); "+
+			"80 exceeds the cap of %.0f regardless of resting vs realised", prospective, e.Params.MaxAssetExposure)
+	}
+
+	// But the reservation must genuinely be gone, not double-counted forever:
+	// a smaller order that fits alongside the realised 40 must be allowed.
+	baseline = e.exposureBaseline("BTC", "make", 20)
+	if ok, prospective := ExposureAllows(baseline, 20, e.Params.MaxAssetExposure); !ok {
+		t.Errorf("BTC/240m's 20 refused after BTC/60m's fill (prospective %.0f, cap %.0f); "+
+			"the released resting reservation must not still be counted", prospective, e.Params.MaxAssetExposure)
+	}
+}
+
+// TestClearRestingReleasesReservation checks that cancelling a resting order
+// (or its window ending) frees the exposure it was reserving, so it does not
+// keep blocking unrelated trades on the same asset forever.
+func TestClearRestingReleasesReservation(t *testing.T) {
+	e := testEngine(t)
+	e.mu.Lock()
+	e.marketAsset["btc-60m"] = "BTC"
+	e.mu.Unlock()
+
+	e.setResting("btc-60m", venue.BuyYes, 40)
+	if got := e.assetRestingLong("BTC"); got != 40 {
+		t.Fatalf("assetRestingLong(BTC) = %v, want 40", got)
+	}
+
+	e.clearResting("btc-60m")
+	if got := e.assetRestingLong("BTC"); got != 0 {
+		t.Errorf("assetRestingLong(BTC) = %v after clearResting, want 0", got)
 	}
 }
 

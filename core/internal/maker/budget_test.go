@@ -130,8 +130,57 @@ func TestDefaultParamsBoundTakeRisk(t *testing.T) {
 	if p.TakeCooldown <= 0 {
 		t.Error("TakeCooldown is zero by default")
 	}
+	if p.MaxAssetExposure <= 0 {
+		t.Error("MaxAssetExposure is unbounded by default")
+	}
 	if worst := float64(p.MaxTakesPerMarket) * p.Size; worst > p.MaxTakeNotional {
 		t.Logf("note: take count allows %.0f contracts, notional cap binds first at %.2f",
 			worst, p.MaxTakeNotional)
+	}
+}
+
+// TestExposureAllowsBlocksTwoWindowsAgreeing replays the shape docs/COVERAGE.md
+// warns about: BTC/60m and BTC/240m are both live simultaneously, and nothing
+// stops them making the same correlated bet independently, each within its
+// own per-window MaxInventory. The cross-window cap must catch what the
+// per-window one cannot see.
+func TestExposureAllowsBlocksTwoWindowsAgreeing(t *testing.T) {
+	const cap = 60.0
+	var asset float64 // aggregate BTC exposure across both windows
+
+	// BTC/60m takes Up up to its own 50-contract window cap; each individual
+	// take is comfortably inside that, and inside the 60 asset cap too.
+	ok, after := ExposureAllows(asset, 40, cap)
+	if !ok {
+		t.Fatalf("first window's 40 refused, want allowed (well under cap=%.0f)", cap)
+	}
+	asset = after
+
+	// BTC/240m now tries to add 40 MORE of the same side. Per-window inventory
+	// caps have no opinion about this — it is a different market — but the
+	// asset is already at 40, and 40+40=80 exceeds 60.
+	ok, after = ExposureAllows(asset, 40, cap)
+	if ok {
+		t.Fatalf("second window's agreeing 40 allowed; aggregate would reach %.0f > cap %.0f", after, cap)
+	}
+	if after != 80 {
+		t.Errorf("prospective = %.0f, want 80 (the number a refusal log should show)", after)
+	}
+
+	// A SMALLER add, or one on the opposite side, must still be allowed —
+	// the cap bounds the aggregate, not activity on the asset at all.
+	if ok, after := ExposureAllows(asset, 15, cap); !ok {
+		t.Errorf("40+15=55 refused, want allowed under cap=%.0f (got prospective %.0f)", cap, after)
+	}
+	if ok, after := ExposureAllows(asset, -40, cap); !ok {
+		t.Errorf("an offsetting take (Down) refused; it flattens exposure to %.0f, should never be blocked", after)
+	}
+}
+
+// TestExposureAllowsCapDisabledAtZero keeps a zero cap permissive rather than
+// refusing every take, matching TakeBudget's nil-is-permissive convention.
+func TestExposureAllowsCapDisabledAtZero(t *testing.T) {
+	if ok, _ := ExposureAllows(1000, 500, 0); !ok {
+		t.Error("cap=0 must disable the check, not refuse everything")
 	}
 }

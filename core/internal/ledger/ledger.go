@@ -66,6 +66,32 @@ CREATE TABLE IF NOT EXISTS windows (
 
 CREATE INDEX IF NOT EXISTS idx_fills_market ON fills(market_id);
 CREATE INDEX IF NOT EXISTS idx_orders_market ON orders(market_id);
+
+-- One row per submitted order: how long signing, RPC submission and mining
+-- together took. The engine and the dashboard are separate processes -- this
+-- table is how a live latency reading crosses that boundary, the same way
+-- orders/fills/windows already do.
+CREATE TABLE IF NOT EXISTS latencies (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  market_id   TEXT NOT NULL,
+  phase       TEXT NOT NULL,      -- submit-to-receipt (only phase measured so far)
+  millis      REAL NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_latencies_created ON latencies(created_at);
+
+-- Current aggregate position per asset, across every window open on that
+-- asset right now. One row per asset, replaced on every inventory change.
+-- Per-window inventory (see the "orders" and "fills" tables joined against
+-- "windows") caps a single market; this is the number a cross-window risk
+-- cap must consult, and the only one that would have caught the 2026-09-03
+-- loss if it had spanned two windows instead of one.
+CREATE TABLE IF NOT EXISTS exposure (
+  asset       TEXT PRIMARY KEY,
+  net_up      REAL NOT NULL,      -- signed: positive = net long Up
+  cap         REAL NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
 `
 
 func Open(path string) (*DB, error) {
@@ -407,6 +433,143 @@ func (d *DB) Windows(ctx context.Context) ([]PendingWindow, error) {
 		}
 		w.Voided = voided == 1
 		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// ---- live telemetry: latency & exposure -----------------------------------
+
+// RecordLatency logs how long one submitted order took from send to mined
+// receipt. Called by the engine only -- the dashboard reads this table, never
+// writes it, so a stale reading is a stopped engine, not a race.
+func (d *DB) RecordLatency(ctx context.Context, marketID, phase string, millis float64) error {
+	_, err := d.sql.ExecContext(ctx, `
+		INSERT INTO latencies (market_id, phase, millis, created_at) VALUES (?,?,?,?)`,
+		marketID, phase, millis, time.Now().Unix())
+	return err
+}
+
+// LatencySample is one measured order's submit-to-receipt time.
+type LatencySample struct {
+	MarketID  string  `json:"marketId"`
+	Phase     string  `json:"phase"`
+	Millis    float64 `json:"millis"`
+	CreatedAt int64   `json:"createdAt"`
+}
+
+// RecentLatencies returns the most recent latency samples, newest first, for
+// the dashboard to summarise. Percentiles belong to the caller: returning raw
+// samples rather than a pre-computed mean keeps the ledger from silently
+// changing what "latency" means as the definition evolves.
+func (d *DB) RecentLatencies(ctx context.Context, limit int) ([]LatencySample, error) {
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT market_id, phase, millis, created_at FROM latencies
+		ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LatencySample{}
+	for rows.Next() {
+		var s LatencySample
+		if err := rows.Scan(&s.MarketID, &s.Phase, &s.Millis, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// UpsertExposure records the engine's current aggregate position for one
+// asset, across every window open on it right now, and the cap it is being
+// held against. Replaced wholesale on every change rather than accumulated,
+// because the dashboard needs the CURRENT number, not a history of deltas.
+func (d *DB) UpsertExposure(ctx context.Context, asset string, netUp, cap float64) error {
+	_, err := d.sql.ExecContext(ctx, `
+		INSERT INTO exposure (asset, net_up, cap, updated_at) VALUES (?,?,?,?)
+		ON CONFLICT(asset) DO UPDATE SET net_up=excluded.net_up, cap=excluded.cap, updated_at=excluded.updated_at`,
+		asset, netUp, cap, time.Now().Unix())
+	return err
+}
+
+// ExposureRow is one asset's current aggregate position, for display.
+type ExposureRow struct {
+	Asset     string  `json:"asset"`
+	NetUp     float64 `json:"netUp"`
+	Cap       float64 `json:"cap"`
+	UpdatedAt int64   `json:"updatedAt"`
+}
+
+// Exposures lists every asset's current aggregate position.
+func (d *DB) Exposures(ctx context.Context) ([]ExposureRow, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT asset, net_up, cap, updated_at FROM exposure ORDER BY asset`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ExposureRow{}
+	for rows.Next() {
+		var e ExposureRow
+		if err := rows.Scan(&e.Asset, &e.NetUp, &e.Cap, &e.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ---- live model health -----------------------------------------------------
+
+// HealthPoint is one settled, filled contract scored against the fair value
+// it was bought at -- the live equivalent of one row in the offline backtest.
+type HealthPoint struct {
+	SettledAt int64   `json:"settledAt"`
+	Fair      float64 `json:"fair"`  // side-adjusted fair value at fill time
+	Value     float64 `json:"value"` // 1, 0, or 0.5 on a void
+}
+
+// RecentHealth returns the last `limit` settled, filled contracts in
+// settlement order, for a rolling live Brier score. It is the production
+// analogue of docs/AUTOPSY.md's offline backtest: the same score, computed
+// continuously against what the engine has actually traded rather than once
+// against history, so a drift in live calibration is visible before it costs
+// as much as the 2026-09-03 loss did.
+func (d *DB) RecentHealth(ctx context.Context, limit int) ([]HealthPoint, error) {
+	rows, err := d.sql.QueryContext(ctx, `
+		SELECT w.settled_at, w.winner, w.voided, f.kind, f.fair
+		FROM fills f
+		JOIN windows w ON w.market_id = f.market_id
+		WHERE w.settled_at IS NOT NULL
+		ORDER BY w.settled_at DESC, f.id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HealthPoint{}
+	for rows.Next() {
+		var settledAt int64
+		var winner sql.NullInt64
+		var voided int
+		var kind string
+		var fair float64
+		if err := rows.Scan(&settledAt, &winner, &voided, &kind, &fair); err != nil {
+			return nil, err
+		}
+		sideFair := fair
+		if kind == "BUY_DN" {
+			sideFair = 1 - fair
+		}
+		var value float64
+		switch {
+		case voided == 1:
+			value = 0.5
+		case kind == "BUY_UP":
+			value = boolTo(winner.Valid && winner.Int64 == 0)
+		case kind == "BUY_DN":
+			value = boolTo(winner.Valid && winner.Int64 == 1)
+		}
+		out = append(out, HealthPoint{SettledAt: settledAt, Fair: sideFair, Value: value})
 	}
 	return out, rows.Err()
 }

@@ -117,6 +117,45 @@ export type Trace = {
   attribution: Attribution | null;
 };
 
+export type CoverageRow = {
+  label: string;
+  asset: string;
+  intervalSec: number;
+  quotable: boolean;
+  reason: string;
+};
+
+export type CoveragePayload = { rows: CoverageRow[] };
+
+export type HealthPoint = { settledAt: number; fair: number; value: number };
+
+export type HealthPayload = {
+  n: number;
+  brierLive: number;
+  brierBaseline: number;
+  skillLive: number;
+  points: HealthPoint[];
+};
+
+export type ExposureRow = { asset: string; netUp: number; cap: number; updatedAt: number };
+
+export type RiskPayload = { assets: ExposureRow[] };
+
+export type LatencySample = { marketId: string; phase: string; millis: number; createdAt: number };
+
+export type ChainPayload = {
+  blockNumber: number;
+  blockTimeMs: number;
+  sampledBlocks: number;
+  latency: {
+    n: number;
+    meanMs: number;
+    p50Ms: number;
+    p90Ms: number;
+    samples: LatencySample[];
+  };
+};
+
 /** In development the Go engine runs on :8080; in production it serves this page. */
 const BASE =
   process.env.NODE_ENV === "development" ? "http://localhost:8080" : "";
@@ -154,6 +193,10 @@ export const api = {
     get<{ marketIds: string[] }>("/api/traces", signal),
   trace: (id: string, signal?: AbortSignal) =>
     get<Trace>(`/api/trace/${id}`, signal),
+  coverage: (signal?: AbortSignal) => get<CoveragePayload>("/api/coverage", signal),
+  health: (signal?: AbortSignal) => get<HealthPayload>("/api/health", signal),
+  risk: (signal?: AbortSignal) => get<RiskPayload>("/api/risk", signal),
+  chain: (signal?: AbortSignal) => get<ChainPayload>("/api/chain", signal),
 };
 
 /* ---------- formatting -------------------------------------------------- */

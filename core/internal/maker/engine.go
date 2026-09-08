@@ -260,10 +260,12 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 	}
 
 	if e.Ledger != nil {
-		_ = e.Ledger.UpsertWindow(ctx, ledger.WindowRow{
+		if err := e.Ledger.UpsertWindow(ctx, ledger.WindowRow{
 			MarketID: im.MarketID, Label: label, Asset: im.Asset,
 			IntervalSec: im.IntervalSecs(), Expiry: int64(m.Expiry),
-		})
+		}); err != nil {
+			e.Log.Printf("[%s] ledger: upsert window: %v", label, err)
+		}
 	}
 
 	sigma, _ := model.SigmaPerMin(im.Asset, im.IntervalSecs())
@@ -765,11 +767,13 @@ func (e *Engine) record(ctx context.Context, in Intent, res *venue.PlaceResult) 
 		e.addInventory(in.MarketID, signed)
 
 		if e.Ledger != nil {
-			_ = e.Ledger.RecordFill(ctx, ledger.FillRow{
+			if err := e.Ledger.RecordFill(ctx, ledger.FillRow{
 				Key:    fmt.Sprintf("rcpt:%s:%d", res.TxHash.Hex(), i),
 				TxHash: res.TxHash.Hex(), MarketID: in.MarketID, Kind: kind,
 				Price: toCost(px), Quantity: qty, Fair: in.Fair,
-			})
+			}); err != nil {
+				e.Log.Printf("ledger: record fill %s: %v", res.TxHash.Hex(), err)
+			}
 		}
 	}
 }
@@ -835,7 +839,9 @@ func (e *Engine) settle(ctx context.Context, im venue.IndexerMarket, m *venue.Ma
 			}
 			winner = w
 		}
-		_ = e.Ledger.Settle(ctx, im.MarketID, winner, st.IsVoided, 0, 0)
+		if err := e.Ledger.Settle(ctx, im.MarketID, winner, st.IsVoided, 0, 0); err != nil {
+			e.Log.Printf("[%s] ledger: settle: %v", label, err)
+		}
 		e.Log.Printf("[%s] SETTLED winner=%d voided=%v", label, winner, st.IsVoided)
 		return
 	}

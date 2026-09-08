@@ -69,7 +69,14 @@ CREATE INDEX IF NOT EXISTS idx_orders_market ON orders(market_id);
 `
 
 func Open(path string) (*DB, error) {
-	d, err := sql.Open("sqlite", path)
+	// The dashboard and the live engine can both hold this file open at once
+	// (e.g. sharing one Docker volume), one reading while the other writes.
+	// Without WAL a writer's transaction locks the whole file against readers,
+	// and without a busy timeout the loser of that race fails immediately
+	// instead of waiting — which is how a window, fill or settlement goes
+	// missing from attribution without either side noticing.
+	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000"
+	d, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}

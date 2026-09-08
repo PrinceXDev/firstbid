@@ -153,6 +153,8 @@ export type ChainPayload = {
     p50Ms: number;
     p90Ms: number;
     samples: LatencySample[];
+    /** Set when the ledger read failed — distinct from "" meaning genuinely no samples yet. */
+    error: string;
   };
 };
 

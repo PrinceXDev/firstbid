@@ -15,6 +15,7 @@ export default function Page() {
 function System() {
   const [health, setHealth] = useState<HealthPayload | null>(null);
   const [risk, setRisk] = useState<RiskPayload | null>(null);
+  const [riskErr, setRiskErr] = useState<string | null>(null);
   const [chain, setChain] = useState<ChainPayload | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -22,7 +23,15 @@ function System() {
     const ac = new AbortController();
     const load = () => {
       api.health(ac.signal).then(setHealth).catch((e) => !ac.signal.aborted && setErr(String(e.message ?? e)));
-      api.risk(ac.signal).then(setRisk).catch(() => {});
+      // A failed read must not look like "no exposure recorded" — that
+      // silence is exactly what let a ledger outage go unnoticed here before.
+      api
+        .risk(ac.signal)
+        .then((r) => {
+          setRisk(r);
+          setRiskErr(null);
+        })
+        .catch((e) => !ac.signal.aborted && setRiskErr(String(e.message ?? e)));
       api.chain(ac.signal).then(setChain).catch(() => {});
     };
     load();
@@ -86,7 +95,11 @@ function System() {
           Two correlated windows agreeing with each other are refused before
           their combined exposure clears the cap.
         </p>
-        {!risk || risk.assets.length === 0 ? (
+        {riskErr ? (
+          <p className="text-[13px]" style={{ color: "var(--color-warn)" }}>
+            Risk telemetry unavailable: {riskErr}
+          </p>
+        ) : !risk || risk.assets.length === 0 ? (
           <p className="text-[13px]" style={{ color: "var(--color-ink-3)" }}>
             No exposure recorded yet — nothing has filled since the engine started.
           </p>
@@ -130,13 +143,21 @@ function System() {
         {!chain ? (
           <p className="text-[13px]" style={{ color: "var(--color-ink-3)" }}>Loading…</p>
         ) : (
-          <div className="flex flex-wrap gap-x-12 gap-y-5">
-            <Kpi v={`${chain.blockTimeMs.toFixed(0)}ms`} l={`avg block time, last ${chain.sampledBlocks} blocks`} big />
-            <Kpi v={chain.latency.n > 0 ? `${chain.latency.p50Ms.toFixed(0)}ms` : "—"} l="order p50 (submit→receipt)" />
-            <Kpi v={chain.latency.n > 0 ? `${chain.latency.p90Ms.toFixed(0)}ms` : "—"} l="order p90 (submit→receipt)" />
-            <Kpi v={String(chain.latency.n)} l="orders measured" dim />
-            <Kpi v={chain.blockNumber.toLocaleString()} l="latest block" dim />
-          </div>
+          <>
+            <div className="flex flex-wrap gap-x-12 gap-y-5">
+              <Kpi v={`${chain.blockTimeMs.toFixed(0)}ms`} l={`avg block time, last ${chain.sampledBlocks} blocks`} big />
+              <Kpi v={chain.latency.n > 0 ? `${chain.latency.p50Ms.toFixed(0)}ms` : "—"} l="order p50 (submit→receipt)" />
+              <Kpi v={chain.latency.n > 0 ? `${chain.latency.p90Ms.toFixed(0)}ms` : "—"} l="order p90 (submit→receipt)" />
+              <Kpi v={String(chain.latency.n)} l="orders measured" dim />
+              <Kpi v={chain.blockNumber.toLocaleString()} l="latest block" dim />
+            </div>
+            {chain.latency.error && (
+              <p className="mt-4 text-[13px]" style={{ color: "var(--color-warn)" }}>
+                Order latency unavailable: {chain.latency.error}. Block speed above is unaffected — it comes
+                straight from the chain, not the ledger.
+              </p>
+            )}
+          </>
         )}
       </section>
     </Wrap>

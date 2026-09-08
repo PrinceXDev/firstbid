@@ -40,11 +40,15 @@ type Engine struct {
 	// skew and the exposure caps are meaningless without it: a loop that always
 	// reports flat will happily build a large one-sided position.
 	inv map[string]float64
-	// Net Up contracts held per ASSET, summed across every market on it. A
-	// per-window cap alone cannot see that BTC/60m and BTC/240m agreeing with
-	// each other is one correlated bet wearing two windows' clothing.
-	assetInv map[string]float64
-	stats    Stats
+	// Which asset each live market belongs to, so assetExposure can sum inv
+	// across every window on one asset. Kept as a DERIVED read over inv rather
+	// than a separately incremented total: a second running total can drift
+	// from the thing it is supposed to summarise (see reap, where a window's
+	// inv entry dies with the window -- a derived sum forgets it for free;
+	// a separately maintained one would not, unless every removal path also
+	// remembered to subtract from it).
+	marketAsset map[string]string
+	stats       Stats
 }
 
 type Stats struct {
@@ -95,10 +99,10 @@ type Intent struct {
 func New(c *venue.Client, tr *venue.Trader, p Params, feedURL string, lg *log.Logger) *Engine {
 	return &Engine{
 		C: c, Trader: tr, Params: p, FeedURL: feedURL, Log: lg,
-		intents:  make(chan Intent, 256),
-		running:  map[string]context.CancelFunc{},
-		inv:      map[string]float64{},
-		assetInv: map[string]float64{},
+		intents:     make(chan Intent, 256),
+		running:     map[string]context.CancelFunc{},
+		inv:         map[string]float64{},
+		marketAsset: map[string]string{},
 	}
 }
 
@@ -106,6 +110,8 @@ func (e *Engine) DryRun() bool { return e.Trader == nil }
 
 // Run starts the price poller, the executor and the discovery supervisor.
 func (e *Engine) Run(ctx context.Context) error {
+	e.restoreInventory(ctx)
+
 	var wg sync.WaitGroup
 	wg.Add(4)
 	go func() { defer wg.Done(); e.pollSpots(ctx) }()
@@ -217,6 +223,7 @@ func (e *Engine) discover(ctx context.Context) {
 		mctx, cancel := context.WithDeadline(ctx, time.Unix(int64(m.Expiry), 0))
 		e.mu.Lock()
 		e.running[im.MarketID] = cancel
+		e.marketAsset[im.MarketID] = im.Asset
 		e.mu.Unlock()
 		e.bump(func(s *Stats) { s.Spawned++ })
 
@@ -241,9 +248,21 @@ func (e *Engine) reap(marketID string) {
 	}
 	// Quote-time exposure state dies with the window; realised accounting lives
 	// in the ledger. Keeping it here would leak a map entry per window forever.
+	asset := e.marketAsset[marketID]
 	delete(e.inv, marketID)
+	delete(e.marketAsset, marketID)
 	e.mu.Unlock()
 	e.bump(func(s *Stats) { s.Reaped++ })
+	// The dashboard's persisted exposure row is a snapshot from the last fill,
+	// not a live query -- without pushing the reduced total here, a window
+	// that closes flat (or with its last fill already recorded) would leave a
+	// stale, too-high number on screen and, worse, would let the persisted
+	// value outlive the position it described.
+	if asset != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		e.persistExposure(ctx, asset)
+		cancel()
+	}
 }
 
 // marketLoop quotes one window for its whole life, then exits.
@@ -380,22 +399,17 @@ func (e *Engine) marketLoop(ctx context.Context, im venue.IndexerMarket, m *venu
 			}
 			cost := collateralCost(kind, limit)
 
-			// Signed the same way inventory is: buying Up adds, buying Down
-			// subtracts. Checked BEFORE the per-window budget so the refusal
-			// reason a judge sees in the log names the actual binding
-			// constraint rather than whichever guard happened to run first.
-			delta := e.Params.Size
-			if tk.BuyDn {
-				delta = -e.Params.Size
-			}
-			if ok, prospective := ExposureAllows(e.assetExposure(im.Asset), delta, e.Params.MaxAssetExposure); !ok {
-				e.bump(func(s *Stats) { s.ExposureRefused++ })
-				e.Log.Printf("[%s] t-%3.0fs fair=%.3f book=%.3f/%.3f  TAKE REFUSED asset exposure cap"+
-					" (%s would reach %.1f of %.1f across every live %s window, edge=%.3f)",
-					label, secsLeft, fair, bestBid, bestAsk, im.Asset, prospective, e.Params.MaxAssetExposure, im.Asset, tk.Edge)
-				continue
-			}
-
+			// The asset exposure cap is NOT checked here. Every marketLoop
+			// runs in its own goroutine and decides concurrently, so a check
+			// made here can only ever compare against a stale snapshot -- two
+			// windows on the same asset could both pass an identical check a
+			// moment before either one's fill is recorded, and their
+			// sequential fills could together exceed the cap the check meant
+			// to enforce. handle() is the one goroutine that ever turns a
+			// decision into a write, so it is where that check is atomic; see
+			// its exposure guard, which covers this take AND the resting
+			// orders below (both go through the same Intent path).
+			//
 			// The pricing decision says the book is wrong. The budget decides
 			// whether we are allowed to act on it again in this window.
 			if ok, why := budget.Allow(time.Now(), cost, e.Params.Size); !ok {
@@ -661,6 +675,38 @@ func (e *Engine) handle(ctx context.Context, in Intent) {
 		return
 	}
 
+	// The cross-window asset exposure cap is checked HERE rather than in
+	// marketLoop. Several marketLoop goroutines can decide concurrently, but
+	// handle() is the one goroutine every write funnels through and is
+	// strictly serialised by the intents channel, so a check made here sees
+	// the true, up-to-date exposure left by every fill this engine has
+	// already recorded -- including the one immediately before it in the
+	// queue. That is what closes the TOCTOU gap a check made earlier could
+	// not: two takes on the same asset can no longer both pass against the
+	// same stale number, because the second one is only evaluated after the
+	// first has either landed (and been recorded) or been rejected.
+	//
+	// It applies to every BUY, take or resting maker order alike -- a
+	// two-sided quote's Up and Down legs are placed as two separate Intents
+	// through this same path, so a resting order that would push realised
+	// exposure past the cap IF IT FILLED is refused here too, closing the gap
+	// where only the take path used to have this guard. Like MaxInventory,
+	// this bounds REALISED exposure at the moment of placement; it does not
+	// reserve capacity for an order that is merely resting and unfilled, the
+	// same scope MaxInventory itself has always had.
+	delta := in.HumanQty
+	if in.Kind == venue.BuyNo || in.Kind == venue.SellNo {
+		delta = -in.HumanQty
+	}
+	if ok, prospective := ExposureAllows(e.assetExposure(in.Asset), delta, e.Params.MaxAssetExposure); !ok {
+		e.bump(func(s *Stats) { s.ExposureRefused++ })
+		e.Log.Printf("[%s] %-7s %.3f x %.1f  REFUSED asset exposure cap"+
+			" (%s would reach %.1f of %.1f, fair=%.3f)",
+			in.Label, kindName(in.Kind), in.HumanPx, in.HumanQty, in.Asset, prospective, e.Params.MaxAssetExposure, in.Fair)
+		reply(nil)
+		return
+	}
+
 	if e.DryRun() {
 		e.Log.Printf("  DRY  %s %-7s %.3f x %.1f", in.Label, kindName(in.Kind), in.HumanPx, in.HumanQty)
 		reply(nil)
@@ -804,19 +850,16 @@ func (e *Engine) record(ctx context.Context, in Intent, res *venue.PlaceResult) 
 			signed = -qty
 		}
 		e.addInventory(in.MarketID, signed)
-		netAsset := e.addAssetExposure(in.Asset, signed)
-
-		if e.Ledger != nil {
-			if err := e.Ledger.UpsertExposure(ctx, in.Asset, netAsset, e.Params.MaxAssetExposure); err != nil {
-				e.Log.Printf("ledger: record exposure %s: %v", in.Asset, err)
-			}
-		}
+		e.persistExposure(ctx, in.Asset)
 
 		if e.Ledger != nil {
 			if err := e.Ledger.RecordFill(ctx, ledger.FillRow{
 				Key:    fmt.Sprintf("rcpt:%s:%d", res.TxHash.Hex(), i),
 				TxHash: res.TxHash.Hex(), MarketID: in.MarketID, Kind: kind,
 				Price: toCost(px), Quantity: qty, Fair: in.Fair,
+				// A receipt-decoded fill always carries the decision-time model
+				// value from Intent.Fair, never a price fallback.
+				HasModelFair: true,
 			}); err != nil {
 				e.Log.Printf("ledger: record fill %s: %v", res.TxHash.Hex(), err)
 			}
@@ -831,25 +874,78 @@ func (e *Engine) inventory(marketID string) float64 {
 	return e.inv[marketID]
 }
 
+// setMarketAsset records which asset a market belongs to, so assetExposure
+// can find it. Idempotent and safe to call more than once for the same
+// market (discover, restoreInventory and reconcile can all learn about the
+// same market at different times).
+func (e *Engine) setMarketAsset(marketID, asset string) {
+	e.mu.Lock()
+	e.marketAsset[marketID] = asset
+	e.mu.Unlock()
+}
+
 func (e *Engine) addInventory(marketID string, delta float64) {
 	e.mu.Lock()
 	e.inv[marketID] += delta
 	e.mu.Unlock()
 }
 
-// assetExposure is our net Up exposure on one ASSET, summed across every
-// window currently open on it.
+// assetExposure is our net Up exposure on one ASSET, summed live across every
+// market currently tracked on it. Deliberately recomputed from inv rather
+// than kept as a separate running total -- see the marketAsset field comment
+// for why that would drift.
 func (e *Engine) assetExposure(asset string) float64 {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.assetInv[asset]
+	var sum float64
+	for marketID, qty := range e.inv {
+		if e.marketAsset[marketID] == asset {
+			sum += qty
+		}
+	}
+	return sum
 }
 
-func (e *Engine) addAssetExposure(asset string, delta float64) float64 {
+// persistExposure recomputes one asset's current exposure and writes it to
+// the ledger, so the dashboard -- a separate process -- can show the same
+// number this engine is actually enforcing. Call it after anything changes
+// that asset's inventory.
+func (e *Engine) persistExposure(ctx context.Context, asset string) {
+	if e.Ledger == nil {
+		return
+	}
+	net := e.assetExposure(asset)
+	if err := e.Ledger.UpsertExposure(ctx, asset, net, e.Params.MaxAssetExposure); err != nil {
+		e.Log.Printf("ledger: record exposure %s: %v", asset, err)
+	}
+}
+
+// restoreInventory rebuilds in-memory position state from the ledger before
+// trading begins, so a restart mid-window is not silently treated as flat.
+// Without this, the asset exposure cap would pass trades it should refuse
+// until enough new fills happened to repopulate a map that started empty.
+func (e *Engine) restoreInventory(ctx context.Context) {
+	if e.Ledger == nil {
+		return
+	}
+	positions, err := e.Ledger.OpenPositions(ctx)
+	if err != nil {
+		e.Log.Printf("restore inventory: %v", err)
+		return
+	}
+	if len(positions) == 0 {
+		return
+	}
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.assetInv[asset] += delta
-	return e.assetInv[asset]
+	for _, p := range positions {
+		e.inv[p.MarketID] = p.Signed
+		e.marketAsset[p.MarketID] = p.Asset
+	}
+	e.mu.Unlock()
+	e.Log.Printf("restored %d open position(s) from the ledger", len(positions))
+	for _, p := range positions {
+		e.persistExposure(ctx, p.Asset)
+	}
 }
 
 // rawToHuman converts a pool-scaled integer to collateral units.
@@ -977,12 +1073,22 @@ func (e *Engine) reconcile(ctx context.Context) {
 				// No model snapshot exists for a fill we did not submit, so fair
 				// value is recorded as the execution price. That makes its edge
 				// contribution exactly zero rather than a guess — the honest
-				// choice when we cannot know what we believed at the time.
+				// choice when we cannot know what we believed at the time. It is
+				// a price, not a prediction, so it must never be scored as one --
+				// see HasModelFair and internal/ledger.RecentHealth.
 				Price: cost, Quantity: qty, Fair: yesPx,
+				HasModelFair: false,
 			}); err != nil {
 				continue
 			}
+			// This fill's market is one we spawned (KnownMarket, above), so
+			// marketAsset should already hold its asset from discover() or a
+			// restart's restoreInventory -- set defensively so the exposure cap
+			// and dashboard stay correct even if this fill is somehow the first
+			// thing this process ever learns about the market.
+			e.setMarketAsset(f.MarketID, f.Market.Asset)
 			e.addInventory(f.MarketID, signed)
+			e.persistExposure(ctx, f.Market.Asset)
 			added++
 		}
 		if added > 0 {

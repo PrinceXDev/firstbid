@@ -445,16 +445,31 @@ func (s *server) health(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n := len(pts)
-	var sumSq float64
+	// The baseline is NOT a flat 0.25. A void's recorded outcome is 0.5 (see
+	// HealthPoint), and an always-0.5 predictor scores (0.5-0.5)^2 = 0 against
+	// that, not 0.25. A fixed 0.25 denominator overstates live skill whenever
+	// the sample contains voids, and understates it if it somehow didn't --
+	// the correct baseline is computed per point from the same recorded
+	// outcome the model is scored against, exactly as cmd/backtest does for
+	// the offline reference.
+	var sumSq, baseSumSq float64
 	for _, p := range pts {
 		d := p.Fair - p.Value
 		sumSq += d * d
+		b := 0.5 - p.Value
+		baseSumSq += b * b
 	}
-	const baseline = 0.25 // Brier of "always predict 0.5", the same reference cmd/backtest scores against
-	brier, skill := 0.0, 0.0
+	brier, baseline, skill := 0.0, 0.0, 0.0
 	if n > 0 {
 		brier = sumSq / float64(n)
-		skill = 100 * (1 - brier/baseline)
+		baseline = baseSumSq / float64(n)
+		if baseline > 0 {
+			skill = 100 * (1 - brier/baseline)
+		}
+		// baseline == 0 means every point in the sample was a void: the
+		// baseline predictor is perfect by construction and "skill" is
+		// undefined, not zero or infinite, so it is left at 0 rather than
+		// fabricating a number from a division that has no honest answer.
 	}
 	writeJSON(w, map[string]any{
 		"n": n, "brierLive": brier, "brierBaseline": baseline, "skillLive": skill, "points": pts,
@@ -521,8 +536,20 @@ func (s *server) chain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var samples []ledger.LatencySample
+	// A read failure here (locked, corrupt, or unavailable ledger) must not
+	// look identical to "the engine has not submitted an order yet" -- that
+	// silence is exactly what let this failure mode go unnoticed. The chain
+	// data above stands on its own (it comes straight from the RPC, not the
+	// ledger), so a ledger error surfaces as an explicit "latencyError" field
+	// rather than failing the whole response.
+	var latencyErr string
 	if s.ledger != nil {
-		samples, _ = s.ledger.RecentLatencies(ctx, 200)
+		var err error
+		samples, err = s.ledger.RecentLatencies(ctx, 200)
+		if err != nil {
+			latencyErr = err.Error()
+			samples = nil
+		}
 	}
 	ms := make([]float64, 0, len(samples))
 	var sum float64
@@ -544,7 +571,7 @@ func (s *server) chain(w http.ResponseWriter, r *http.Request) {
 		"latency": map[string]any{
 			"n": n, "meanMs": mean,
 			"p50Ms": percentile(ms, 0.5), "p90Ms": percentile(ms, 0.9),
-			"samples": samples,
+			"samples": samples, "error": latencyErr,
 		},
 	})
 }

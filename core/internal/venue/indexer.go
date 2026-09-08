@@ -109,7 +109,8 @@ type UserFill struct {
 	Timestamp  string `json:"timestamp"`
 	TakerIsBid bool   `json:"takerIsBid"`
 	Market     struct {
-		QuoteDecimals int `json:"quoteDecimals"`
+		QuoteDecimals int    `json:"quoteDecimals"`
+		Asset         string `json:"asset"`
 	} `json:"market"`
 }
 
@@ -121,7 +122,7 @@ const userFillsQuery = `query Fills($who: String!, $since: numeric!) {
     limit: 500
   ) {
     id txHash market_id maker taker fillPrice quantity timestamp takerIsBid
-    market { quoteDecimals }
+    market { quoteDecimals asset }
   }
 }`
 

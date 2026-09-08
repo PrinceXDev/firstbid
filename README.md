@@ -207,10 +207,10 @@ resolved venue history" is not "no evidence," because σ is a property of the
 index price process and the settlement log is only one way to observe it.
 
 A census of the live book found what the overreach cost — **187 of 191 trades
-(97.9%) and ~99% of quote volume on the cadences we were refusing**, and 311 of
-350 two-sided legs across 93 polls sitting on a cadence we had no opinion about.
-Depth is not the argument: nearly all of it sits on the one cadence that stays
-refused. So `cmd/volscale` measures σ from
+(97.9%) and ~99% of quote volume on the cadences we were refusing**, and **411 of
+429 legs (95.8%) across 72 complete polls** resting on a cadence we had no
+opinion about. Depth is not the argument: nearly all of it sits on the one
+cadence that stays refused. So `cmd/volscale` measures σ from
 30 days of M1 candles using non-overlapping returns, and it agrees with the
 resolved-window fit to within **5.3%** — two independent estimators sharing no
 data and no code path. √t then holds to +11.1% at a 240-minute aggregation for
@@ -441,10 +441,10 @@ weak.
    ladder would be profit that does not require our model to be right at all.
    That was the point: it would have escaped the dependency that cost us 37%.
    `cmd/surface` was built to measure it and found **zero same-expiry pairs
-   across 93 polls**, including the top-of-hour boundary where a 15m and a 60m
-   window can coincide —
-   expiries coincide only at alignment boundaries, and with 8 live markets there
-   is no cross-section to arbitrage. The tool prints that verdict itself and
+   across 72 polls that each read every market they discovered**, spanning the
+   top-of-hour boundary where a 15m and a 60m window can coincide. Expiries
+   coincide only at alignment boundaries, and with 8 live markets there is no
+   cross-section to arbitrage. The tool prints that verdict itself and
    names the surviving idea. The thesis cost two commands rather than two days.
 6. *"Refusing every cadence without resolved venue history is conservative."* —
    **Killed by the census the dead thesis left behind.** The refusal was right;

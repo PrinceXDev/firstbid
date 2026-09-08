@@ -18,7 +18,30 @@ type Vol struct {
 	Asset       string
 	SigmaPerMin float64
 	N           int
+	// Source records WHERE this number came from, because the table now holds
+	// two kinds of evidence and they are not interchangeable. N means "resolved
+	// windows" for one and "non-overlapping price returns" for the other, and a
+	// reader who conflates them will trust a horizon-scaled entry as though the
+	// venue had settled it. Provenance travels with the number for the same
+	// reason SpotObs carries an observable-at time: the expensive bug was not a
+	// wrong value, it was a value whose origin nobody had written down.
+	Source string
 }
+
+// Sources for Vol. A cadence is quotable under either, but only one of them
+// means the venue itself has settled the window enough times to fit it.
+const (
+	// SourceResolvedWindows: fitted by cmd/calibrate from resolved venue
+	// windows of exactly this cadence. The strongest evidence available.
+	SourceResolvedWindows = "resolved-windows"
+
+	// SourceHorizonScaled: no resolved venue history exists at this cadence, so
+	// sigma is the same asset's resolved-window sigma scaled by the horizon
+	// ratio cmd/volscale measured in the index price process. Weaker: it
+	// assumes the price process the candles describe is the one the venue
+	// settles against, which is checked but not settled-window-proven.
+	SourceHorizonScaled = "horizon-scaled"
+)
 
 // Calibration is the volatility multiplier fitted by cmd/backtest, applied to
 // the raw measured sigma in SigmaPerMin.
@@ -79,12 +102,60 @@ const Calibration = 0.715
 // second time and its reported k meant something different from what it looked
 // like, which hid the overconfidence for days.
 var fitted = map[cadence]Vol{
-	{"BTC", 300}:  {Asset: "BTC", SigmaPerMin: 0.000513, N: 512},
-	{"BTC", 900}:  {Asset: "BTC", SigmaPerMin: 0.000504, N: 2880},
-	{"BTC", 3600}: {Asset: "BTC", SigmaPerMin: 0.000517, N: 720},
-	{"ETH", 300}:  {Asset: "ETH", SigmaPerMin: 0.000683, N: 470},
-	{"ETH", 900}:  {Asset: "ETH", SigmaPerMin: 0.000681, N: 2880},
-	{"ETH", 3600}: {Asset: "ETH", SigmaPerMin: 0.000707, N: 720},
+	{"BTC", 300}:  {Asset: "BTC", SigmaPerMin: 0.000513, N: 512, Source: SourceResolvedWindows},
+	{"BTC", 900}:  {Asset: "BTC", SigmaPerMin: 0.000504, N: 2880, Source: SourceResolvedWindows},
+	{"BTC", 3600}: {Asset: "BTC", SigmaPerMin: 0.000517, N: 720, Source: SourceResolvedWindows},
+	{"ETH", 300}:  {Asset: "ETH", SigmaPerMin: 0.000683, N: 470, Source: SourceResolvedWindows},
+	{"ETH", 900}:  {Asset: "ETH", SigmaPerMin: 0.000681, N: 2880, Source: SourceResolvedWindows},
+	{"ETH", 3600}: {Asset: "ETH", SigmaPerMin: 0.000707, N: 720, Source: SourceResolvedWindows},
+
+	// BTC/240m -- the first entry NOT fitted from resolved venue windows.
+	//
+	// WHY IT IS HERE. Refusing this cadence cost more than it saved. The venue
+	// reshaped into few, long, heavily traded windows, and a census of the live
+	// book (cmd/surface) found 187 of 191 trades and ~99% of quote volume on
+	// the 240m, 1440m and 64800m cadences this table refused, resting ~250x the
+	// depth of the 60m books it accepts. The refusal was not wrong to make; the
+	// REASON was too strong. "No resolved venue history" was read as "no
+	// evidence", but sigma is a property of the index price process, not of the
+	// venue's settlement log.
+	//
+	// WHY THIS NUMBER. cmd/volscale measures sigma/min from 30 days of M1
+	// candles using non-overlapping returns, and two independent estimators
+	// agree: realised 1-minute sigma is 0.000530 against this table's
+	// resolved-window 0.000504, a ratio of 1.053. At a 240-minute aggregation
+	// realised sigma/min is 0.000589, i.e. 1.111x the 1-minute measurement over
+	// n=177 independent 4-hour returns.
+	//
+	// Only that RATIO is imported, never the absolute level:
+	//
+	//	0.000504 (BTC/900 resolved) * 1.111 = 0.000560
+	//
+	// Importing 0.000589 directly would hand Calibration a number it was never
+	// fitted against -- k=0.715 was fitted to correct RESOLVED-WINDOW sigma on
+	// the 5m-60m cadences -- and the result would be corrected twice, which is
+	// the precise hazard the note above this table warns about. Scaling the
+	// resolved-window anchor keeps the whole existing calibration chain intact
+	// and imports only the part cmd/volscale actually validated: how sigma
+	// moves BETWEEN horizons.
+	//
+	// The deviation is POSITIVE, so this sigma is larger than sqrt(t) from the
+	// 15m fit implies, and the probabilities it yields are less confident.
+	// That is the safe direction; overconfidence is what cost 37%.
+	{"BTC", 14400}: {Asset: "BTC", SigmaPerMin: 0.000560, N: 177, Source: SourceHorizonScaled},
+
+	// WHAT IS DELIBERATELY ABSENT, and why the same measurement excludes it:
+	//
+	//	ETH/240m   n=177, +18.2% -- sqrt(t) breaks. The identical measurement
+	//	           that blessed BTC/240m refuses this one. Passing it anyway
+	//	           would make cmd/volscale a rubber stamp rather than a test.
+	//	*/1440m    n=27 -- 30 days holds 27 independent 24-hour returns, below
+	//	           the point where a regime can be told from noise.
+	//	*/64800m   under one independent 45-day return in 30 days of history.
+	//	           This cadence rests the DEEPEST book on the venue and is still
+	//	           refused: it is not short of a model, it is short of evidence.
+	//
+	// Extending coverage further needs a longer sample, not a looser tolerance.
 }
 
 type cadence struct {

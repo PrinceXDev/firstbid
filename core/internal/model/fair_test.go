@@ -84,12 +84,78 @@ func TestOnlyValidatedCadencesAreCalibrated(t *testing.T) {
 			t.Errorf("BTC/%ds should be calibrated", iv)
 		}
 	}
-	for _, iv := range []int64{60, 14400, 86400} {
+	// BTC/14400 is calibrated from horizon-scaled evidence; see fitted.
+	if !Calibrated("BTC", 14400) {
+		t.Error("BTC/14400s is horizon-scaled and should be calibrated")
+	}
+	for _, iv := range []int64{60, 86400, 3888000} {
 		if Calibrated("BTC", iv) {
 			t.Errorf("BTC/%ds has no fitted history and must not be quoted", iv)
 		}
 	}
 	if Calibrated("DOGE", 900) {
 		t.Error("unmodelled asset must not be calibrated")
+	}
+}
+
+// TestHorizonScalingIsNotBlanketPermission is the test that keeps cmd/volscale
+// honest. The same 30-day measurement that blessed BTC/240m refused ETH/240m,
+// because sqrt(t) deviated 18.2% there against 11.1% for BTC. If ETH/240m ever
+// appears in the table without its own passing measurement, the tool has become
+// a rubber stamp and this test is the thing that says so.
+func TestHorizonScalingIsNotBlanketPermission(t *testing.T) {
+	if Calibrated("ETH", 14400) {
+		t.Error("ETH/14400s failed the sqrt(t) tolerance in cmd/volscale (+18.2%) and must not be quoted")
+	}
+	// Neither asset has the independent observations for 24h or longer: 30 days
+	// of M1 history holds 27 non-overlapping 24-hour returns.
+	for _, a := range []string{"BTC", "ETH"} {
+		for _, iv := range []int64{86400, 3888000} {
+			if Calibrated(a, iv) {
+				t.Errorf("%s/%ds lacks independent observations and must not be quoted", a, iv)
+			}
+		}
+	}
+}
+
+// TestEveryFittedEntryDeclaresItsProvenance stops a future entry being added
+// without saying where its number came from. The table now mixes two kinds of
+// evidence, and an entry with no Source reads as resolved-window-strong when it
+// may not be.
+func TestEveryFittedEntryDeclaresItsProvenance(t *testing.T) {
+	for c, v := range fitted {
+		switch v.Source {
+		case SourceResolvedWindows, SourceHorizonScaled:
+		default:
+			t.Errorf("%s/%ds: Source is %q, want one of the declared sources",
+				c.asset, c.intervalSec, v.Source)
+		}
+		if v.N <= 0 {
+			t.Errorf("%s/%ds: N=%d, an entry must carry the sample it was measured on",
+				c.asset, c.intervalSec, v.N)
+		}
+	}
+}
+
+// TestHorizonScaledSigmaExceedsItsAnchor checks the direction of the only
+// horizon-scaled entry. Its whole justification is that realised moves at 240m
+// are LARGER than sqrt(t) from the 15m fit implies, which makes probabilities
+// less confident. A horizon-scaled sigma at or below its anchor would mean the
+// entry was making the model MORE confident on the cadence with the least
+// evidence -- the exact shape of the failure in docs/AUTOPSY.md.
+func TestHorizonScaledSigmaExceedsItsAnchor(t *testing.T) {
+	for c, v := range fitted {
+		if v.Source != SourceHorizonScaled {
+			continue
+		}
+		anchor, ok := fitted[cadence{c.asset, 900}]
+		if !ok {
+			t.Fatalf("%s/%ds is horizon-scaled but %s has no 15m anchor to scale from",
+				c.asset, c.intervalSec, c.asset)
+		}
+		if v.SigmaPerMin <= anchor.SigmaPerMin {
+			t.Errorf("%s/%ds: sigma %.6f is not above its %.6f anchor; horizon scaling must not increase confidence",
+				c.asset, c.intervalSec, v.SigmaPerMin, anchor.SigmaPerMin)
+		}
 	}
 }

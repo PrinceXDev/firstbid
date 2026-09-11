@@ -89,7 +89,7 @@ const SpreadChart: React.FC<{ at: number }> = ({ at }) => {
         {/* leader to the tail, where the flat quote becomes the expensive one */}
         <g opacity={showBands}>
           <line
-            x1={X(CROSS)} y1={Y(VENUE)} x2={X(CROSS) - 26} y2={Y(VENUE) - 86}
+            x1={X(CROSS)} y1={Y(VENUE)} x2={X(CROSS) - 44} y2={Y(VENUE) - 168}
             stroke={C.warn} strokeWidth={1.5}
           />
           <circle cx={X(CROSS)} cy={Y(VENUE)} r={4} fill={C.warn} />
@@ -113,9 +113,9 @@ const SpreadChart: React.FC<{ at: number }> = ({ at }) => {
         <div
           style={{
             position: "absolute",
-            left: X(0.18),
-            top: 96,
-            width: 340,
+            left: X(0.16),
+            top: 104,
+            width: 400,
             fontFamily: F.mono,
             fontSize: 23,
             fontWeight: 700,
@@ -140,8 +140,8 @@ const SpreadChart: React.FC<{ at: number }> = ({ at }) => {
         <div
           style={{
             position: "absolute",
-            left: X(CROSS) - 330,
-            top: Y(VENUE) - 150,
+            left: X(CROSS) - 300,
+            top: 16,
             width: 300,
             textAlign: "right",
             fontFamily: F.mono,

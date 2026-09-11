@@ -1,8 +1,34 @@
-# Firstbid
+<p align="center">
+  <img src="docs/media/logo.png" alt="Firstbid" width="140">
+</p>
 
-**A calibrated market maker for DreamDEX Event Contracts, written in pure Go.**
+<h1 align="center">Firstbid</h1>
 
-Somnia × DreamDEX Event Contracts Hackathon submission.
+<p align="center">
+  <b>A calibrated market maker for DreamDEX Event Contracts, written in pure Go.</b><br>
+  <sub>Somnia × DreamDEX Event Contracts Hackathon submission</sub>
+</p>
+
+<p align="center">
+  <img alt="pure Go" src="https://img.shields.io/badge/pure_Go-no_Node_at_runtime-00ADD8?style=flat-square&logo=go&logoColor=white">
+  <img alt="Somnia Shannon" src="https://img.shields.io/badge/Somnia_Shannon-chain_50312-7e9cff?style=flat-square">
+  <img alt="out-of-sample skill" src="https://img.shields.io/badge/out--of--sample_skill-%2B45.7%25-4ec99a?style=flat-square">
+  <img alt="coverage" src="https://img.shields.io/badge/cadences-1_admitted_%C2%B7_3_refused-c96b7a?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=peFm2sRl43g">
+    <img src="docs/media/demo-thumbnail.png" alt="Watch the Firstbid demo" width="760">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=peFm2sRl43g"><b>▶&nbsp; Watch the 4:53 demo</b></a>
+  &nbsp;·&nbsp;
+  <a href="#running-it">Run it in one command</a>
+  &nbsp;·&nbsp;
+  <a href="docs/AUTOPSY.md">The bug that cost us 37%</a>
+</p>
 
 ---
 
@@ -21,6 +47,13 @@ and extended coverage exactly as far as the evidence reached: one cadence
 admitted, three still refused. See [`docs/COVERAGE.md`](docs/COVERAGE.md).
 
 It is running on Somnia Shannon right now, and it fills.
+
+<p align="center">
+  <img src="docs/media/dashboard-field.png" alt="The Firstbid dashboard: one live window priced against the book, and every other live window ranked beneath it" width="100%">
+</p>
+<p align="center">
+  <sub>One live ETH/5m window. The model says <b>0.812</b>; the book's mid is <b>0.942</b>. Firstbid takes the bid, because the gap clears its own noise floor.</sub>
+</p>
 
 > **Read this before the numbers.** An earlier version of this README claimed
 > +59.5% out-of-sample skill. That figure was wrong: our own backtest read the
@@ -82,6 +115,22 @@ exactly when people most want to trade.
 
 Firstbid quotes 0.12 wide when uncertainty is real and 0.005 wide when it is not.
 
+<p align="center">
+  <img src="docs/media/problem-spread.png" alt="Genuine uncertainty collapses across a window's life while the venue quotes one flat spread throughout" width="100%">
+</p>
+<p align="center">
+  <sub>One flat quote against an uncertainty that decays. It is too tight for most of the window, and too wide exactly where people want to trade.</sub>
+</p>
+
+Which means the interesting decision is usually **not to trade**:
+
+<p align="center">
+  <img src="docs/media/refusal.png" alt="The dashboard declining to act: the model sits 0.049 from the mid against a noise floor of 0.057, so the gap is inside the noise" width="100%">
+</p>
+<p align="center">
+  <sub>The model is <b>0.049</b> from the mid; its own noise floor is <b>0.057</b>. The disagreement is smaller than the model's error, so it is not a signal — and the engine says so, widens to 0.120, and leaves the trade alone.</sub>
+</p>
+
 ---
 
 ## The model
@@ -117,6 +166,13 @@ number. [`docs/COVERAGE.md`](docs/COVERAGE.md) is how it was measured and why
 only the horizon *ratio* was imported rather than the absolute level.
 
 ### Validation — this is the part that matters
+
+<p align="center">
+  <img src="docs/media/evidence.png" alt="Out-of-sample reliability: Brier 0.1357 against 0.2500, +45.7% skill, scored on 5,353 predictions the model never saw" width="100%">
+</p>
+<p align="center">
+  <sub>Fitted on the older half, scored on the newer half it has never seen. The reliability curve tracks the diagonal.</sub>
+</p>
 
 `cmd/backtest` replays every resolved window using **only information observable
 at each moment**, fits the one free parameter on the **older half**, and scores
@@ -221,11 +277,28 @@ One cadence admitted, three still refused, and four tests keep it that way. The
 deepest book on the venue is still not quoted: it is not short of a model, it is
 short of evidence. [`docs/COVERAGE.md`](docs/COVERAGE.md).
 
+<p align="center">
+  <img src="docs/media/coverage.png" alt="The live coverage table: every cadence marked QUOTABLE or REFUSED, with the measurement that decided it" width="100%">
+</p>
+<p align="center">
+  <sub>Every cadence carries the measurement that admitted or refused it. <code>ETH/240m</code> is rejected by the identical test that admitted <code>BTC/240m</code>.</sub>
+</p>
+
+The same refusal shows up live, per window, in the field:
+
+<p align="center">
+  <img src="docs/media/refused-cadences.png" alt="The live field, where uncalibrated cadences read: no validated model — we do not quote this cadence" width="100%">
+</p>
+
 ---
 
 ## Architecture
 
 Pure Go. No Node, no JavaScript runtime, no SDK dependency at runtime.
+
+<p align="center">
+  <img src="docs/media/architecture.png" alt="Price feed to spot poller to supervisor, one deadline-scoped goroutine per live window, funnelling into a single executor" width="100%">
+</p>
 
 ```
                     ┌──────────────────┐
@@ -307,6 +380,16 @@ SENT     BTC/5m BUY_UP 0.258 x2.0  rested=false fills=1
 The model priced the contract at 0.381; the incumbent was asking 0.253; we
 crossed and filled. Verifiable on the
 [Shannon explorer](https://shannon-explorer.somnia.network).
+
+And it keeps score on itself — including the two numbers that make this strategy
+tradeable on Somnia specifically:
+
+<p align="center">
+  <img src="docs/media/system-chain.png" alt="The System page: live model health, cross-window exposure, and 100ms average block time" width="100%">
+</p>
+<p align="center">
+  <sub><b>100ms</b> average block time is the number the whole edge rests on: the edge lives in the seconds near expiry, and a chain slow to confirm could not safely act that close to it.</sub>
+</p>
 
 ---
 

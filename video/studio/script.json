@@ -1,0 +1,237 @@
+{
+ "voice": "en-US-AndrewMultilingualNeural",
+ "rate": "-4%",
+ "pitch": "-2Hz",
+ "beats": [
+  {
+   "id": "a1_01",
+   "act": "PROBLEM",
+   "text": "DreamDEX runs event contracts on Somnia. Simple binary questions: will Bitcoin be higher in fifteen minutes?"
+  },
+  {
+   "id": "a1_02",
+   "act": "PROBLEM",
+   "text": "Across ten thousand settled windows, the probability of Up came out at zero point four nine seven eight."
+  },
+  {
+   "id": "a1_03",
+   "act": "PROBLEM",
+   "text": "That is a coin. Nobody predicts these markets, and it is pointless to try."
+  },
+  {
+   "id": "a1_04",
+   "act": "PROBLEM",
+   "text": "But the quotes are a flat ladder. The same spread, whether the outcome is uncertain or already decided."
+  },
+  {
+   "id": "a1_05",
+   "act": "PROBLEM",
+   "text": "Too tight mid window. Far too wide near expiry."
+  },
+  {
+   "id": "a1_06",
+   "act": "TITLE",
+   "text": "Firstbid is a market maker built for that gap."
+  },
+  {
+   "id": "a2_01",
+   "act": "READ",
+   "text": "This is it, running against the live Shannon testnet book."
+  },
+  {
+   "id": "a2_02",
+   "act": "READ",
+   "text": "One window. Ethereum, five minutes. The model's probability of Up: zero point eight one two."
+  },
+  {
+   "id": "a2_04",
+   "act": "READ",
+   "text": "But the market's mid is zero point nine four two, against the model's zero point eight one two. Far more confident than the evidence supports."
+  },
+  {
+   "id": "a2_05",
+   "act": "READ",
+   "text": "So the read is: take the bid. Down is cheap."
+  },
+  {
+   "id": "a2_06",
+   "act": "READ",
+   "text": "Every live window, ranked by disagreement over noise. Not by volume."
+  },
+  {
+   "id": "a3_01",
+   "act": "REFUSAL",
+   "text": "Now watch the more important half."
+  },
+  {
+   "id": "a3_02",
+   "act": "REFUSAL",
+   "text": "Same market. The model sits zero point zero four nine from the mid. But the noise floor here is zero point zero five seven."
+  },
+  {
+   "id": "a3_03",
+   "act": "REFUSAL",
+   "text": "The disagreement is smaller than the model's own error. So it is not a signal, and Firstbid says so on screen."
+  },
+  {
+   "id": "a3_04",
+   "act": "REFUSAL",
+   "text": "It does not trade. It widens. Their spread is two cents. Ours would be twelve."
+  },
+  {
+   "id": "a3_05",
+   "act": "REFUSAL",
+   "text": "Wide when uncertainty is real. Tight when it is not. That is the discipline."
+  },
+  {
+   "id": "a4_01",
+   "act": "MODEL",
+   "text": "The model is one line, and it takes no directional view. The probability that a driftless random walk finishes above where it started."
+  },
+  {
+   "id": "a4_03",
+   "act": "MODEL",
+   "text": "Sigma is never assumed. It is measured, per asset, per cadence, from resolved history."
+  },
+  {
+   "id": "a5_01",
+   "act": "EVIDENCE",
+   "text": "And here is why you should believe it."
+  },
+  {
+   "id": "a5_02",
+   "act": "EVIDENCE",
+   "text": "Every resolved window replayed using only what was observable at that moment. Fitted on the older half. Scored on the newer half it has never seen."
+  },
+  {
+   "id": "a5_03",
+   "act": "EVIDENCE",
+   "text": "Brier score zero point one three five seven, against zero point two five for always guessing a coin."
+  },
+  {
+   "id": "a5_04",
+   "act": "EVIDENCE",
+   "text": "Forty five point seven percent skill. Out of sample."
+  },
+  {
+   "id": "a5_05",
+   "act": "EVIDENCE",
+   "text": "The reliability curve tracks the diagonal. When it says zero point three five, it happens thirty five percent of the time."
+  },
+  {
+   "id": "a6_01",
+   "act": "AUTOPSY",
+   "text": "That number used to be higher. We claimed fifty nine point five percent."
+  },
+  {
+   "id": "a6_02",
+   "act": "AUTOPSY",
+   "text": "It was wrong. Our own backtest was reading the index price up to fifty nine seconds after each moment it claimed to predict."
+  },
+  {
+   "id": "a6_03",
+   "act": "AUTOPSY",
+   "text": "It made the model overconfident. It cost thirty seven percent of deployed capital across fifty three fills."
+  },
+  {
+   "id": "a6_04",
+   "act": "AUTOPSY",
+   "text": "We caught it twice. In code review, and in the live profit attribution. Then fixed it, and measured again."
+  },
+  {
+   "id": "a6_05",
+   "act": "AUTOPSY",
+   "text": "Forty five point seven is the honest number."
+  },
+  {
+   "id": "a7_01",
+   "act": "COVERAGE",
+   "text": "And refusal is enforced per cadence, then published."
+  },
+  {
+   "id": "a7_02",
+   "act": "COVERAGE",
+   "text": "Bitcoin at five, fifteen and sixty minutes. Quotable, each on its own fitted sample."
+  },
+  {
+   "id": "a7_03",
+   "act": "COVERAGE",
+   "text": "Bitcoin at two forty is admitted only because a second, independent measurement agreed within five point three percent."
+  },
+  {
+   "id": "a7_04",
+   "act": "COVERAGE",
+   "text": "Ethereum at two forty is refused. The identical measurement that admitted Bitcoin rejects this one."
+  },
+  {
+   "id": "a7_05",
+   "act": "COVERAGE",
+   "text": "One cadence admitted. Three still refused. Including the deepest book on the venue."
+  },
+  {
+   "id": "a8_01",
+   "act": "ARCHITECTURE",
+   "text": "Under the hood, Firstbid is pure Go. No Node runtime. No JavaScript dependency at runtime."
+  },
+  {
+   "id": "a8_02",
+   "act": "ARCHITECTURE",
+   "text": "One shared price snapshot. A supervisor that spawns and reaps. One goroutine per live window, scoped to its own expiry."
+  },
+  {
+   "id": "a8_03",
+   "act": "ARCHITECTURE",
+   "text": "Because a market is a state machine that is born, and dies."
+  },
+  {
+   "id": "a8_04",
+   "act": "ARCHITECTURE",
+   "text": "Many windows may decide concurrently. Only one may write."
+  },
+  {
+   "id": "a8_05",
+   "act": "ARCHITECTURE",
+   "text": "One signing key. One nonce sequence."
+  },
+  {
+   "id": "a9_02",
+   "act": "MECHANISM",
+   "text": "One more thing. Up and Down are complementary. When a Buy Up crosses a Buy Down, the pool mints a fresh pair from their combined collateral. No seller required."
+  },
+  {
+   "id": "a9_03",
+   "act": "MECHANISM",
+   "text": "So Firstbid holds a complete two sided quote with no inventory and no directional risk. A matched pair redeems to exactly one dollar."
+  },
+  {
+   "id": "a10_01",
+   "act": "LIVE",
+   "text": "It is reading the live chain. One hundred millisecond blocks."
+  },
+  {
+   "id": "a10_02",
+   "act": "LIVE",
+   "text": "And the panels that report fills say nothing has settled yet, because nothing has. It shows only what it recorded."
+  },
+  {
+   "id": "a11_01",
+   "act": "PITCH",
+   "text": "Firstbid doesn't try to predict the future."
+  },
+  {
+   "id": "a11_02",
+   "act": "PITCH",
+   "text": "It measures uncertainty. It prices the contract. It compares that price against the market."
+  },
+  {
+   "id": "a11_03",
+   "act": "PITCH",
+   "text": "And when the evidence isn't strong enough, it refuses to trade."
+  },
+  {
+   "id": "a11_04",
+   "act": "PITCH",
+   "text": "That's what makes Firstbid a market maker built around evidence, not assumptions."
+  }
+ ]
+}

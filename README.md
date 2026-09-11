@@ -1,8 +1,34 @@
-# Firstbid
+<p align="center">
+  <img src="docs/media/logo.png" alt="Firstbid" width="140">
+</p>
 
-**A calibrated market maker for DreamDEX Event Contracts, written in pure Go.**
+<h1 align="center">Firstbid</h1>
 
-Somnia × DreamDEX Event Contracts Hackathon submission.
+<p align="center">
+  <b>A calibrated market maker for DreamDEX Event Contracts, written in pure Go.</b><br>
+  <sub>Somnia × DreamDEX Event Contracts Hackathon submission</sub>
+</p>
+
+<p align="center">
+  <img alt="pure Go" src="https://img.shields.io/badge/pure_Go-no_Node_at_runtime-00ADD8?style=flat-square&logo=go&logoColor=white">
+  <img alt="Somnia Shannon" src="https://img.shields.io/badge/Somnia_Shannon-chain_50312-7e9cff?style=flat-square">
+  <img alt="out-of-sample skill" src="https://img.shields.io/badge/out--of--sample_skill-%2B45.7%25-4ec99a?style=flat-square">
+  <img alt="coverage" src="https://img.shields.io/badge/cadences-1_admitted_%C2%B7_3_refused-c96b7a?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=peFm2sRl43g">
+    <img src="docs/media/demo-thumbnail.png" alt="Watch the Firstbid demo" width="760">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=peFm2sRl43g"><b>▶&nbsp; Watch the 4:53 demo</b></a>
+  &nbsp;·&nbsp;
+  <a href="#running-it">Run it in one command</a>
+  &nbsp;·&nbsp;
+  <a href="docs/AUTOPSY.md">The bug that cost us 37%</a>
+</p>
 
 ---
 
@@ -21,6 +47,13 @@ and extended coverage exactly as far as the evidence reached: one cadence
 admitted, three still refused. See [`docs/COVERAGE.md`](docs/COVERAGE.md).
 
 It is running on Somnia Shannon right now, and it fills.
+
+<p align="center">
+  <img src="docs/media/dashboard-field.png" alt="The Firstbid dashboard: one live window priced against the book, and every other live window ranked beneath it" width="100%">
+</p>
+<p align="center">
+  <sub>One live ETH/5m window. The model says <b>0.812</b>; the book's mid is <b>0.942</b>. Firstbid takes the bid, because the gap clears its own noise floor.</sub>
+</p>
 
 > **Read this before the numbers.** An earlier version of this README claimed
 > +59.5% out-of-sample skill. That figure was wrong: our own backtest read the
@@ -45,16 +78,16 @@ It is running on Somnia Shannon right now, and it fills.
 We did not assume anything about this venue. Every number below was measured
 directly from the public indexer and the chain on 2026-09-03.
 
-| Measurement | Value | Source |
-| --- | --- | --- |
-| Binary markets created per day | ~770 | indexer |
-| Markets that ever receive a trade | **19.2%** (1,964 of 10,211) | indexer |
-| Binary fills in 24h (mainnet) | 155 | indexer |
-| Distinct wallets trading in 24h | 54 | indexer |
-| Typical quoted spread | **0.024 – 0.029** | `pool.getBookLevels` |
-| P(Up) across 10,209 settled windows | **0.4978** | oracle answers |
-| Winning positions redeemed | 99.4% (25,496 of 25,660) | `OutcomeBalance` |
-| Voided markets observed | 0 of ~800 | indexer |
+| Measurement                         | Value                       | Source               |
+| ----------------------------------- | --------------------------- | -------------------- |
+| Binary markets created per day      | ~770                        | indexer              |
+| Markets that ever receive a trade   | **19.2%** (1,964 of 10,211) | indexer              |
+| Binary fills in 24h (mainnet)       | 155                         | indexer              |
+| Distinct wallets trading in 24h     | 54                          | indexer              |
+| Typical quoted spread               | **0.024 – 0.029**           | `pool.getBookLevels` |
+| P(Up) across 10,209 settled windows | **0.4978**                  | oracle answers       |
+| Winning positions redeemed          | 99.4% (25,496 of 25,660)    | `OutcomeBalance`     |
+| Voided markets observed             | 0 of ~800                   | indexer              |
 
 > **The venue reshaped, and these figures are dated rather than wrong.** Five
 > days later, on 2026-09-08, `cmd/surface` censused the live book and found
@@ -82,6 +115,22 @@ exactly when people most want to trade.
 
 Firstbid quotes 0.12 wide when uncertainty is real and 0.005 wide when it is not.
 
+<p align="center">
+  <img src="docs/media/problem-spread.png" alt="Genuine uncertainty collapses across a window's life while the venue quotes one flat spread throughout" width="100%">
+</p>
+<p align="center">
+  <sub>One flat quote against an uncertainty that decays. It is too tight for most of the window, and too wide exactly where people want to trade.</sub>
+</p>
+
+Which means the interesting decision is usually **not to trade**:
+
+<p align="center">
+  <img src="docs/media/refusal.png" alt="The dashboard declining to act: the model sits 0.049 from the mid against a noise floor of 0.057, so the gap is inside the noise" width="100%">
+</p>
+<p align="center">
+  <sub>The model is <b>0.049</b> from the mid; its own noise floor is <b>0.057</b>. The disagreement is smaller than the model's error, so it is not a signal — and the engine says so, widens to 0.120, and leaves the trade alone.</sub>
+</p>
+
 ---
 
 ## The model
@@ -96,27 +145,34 @@ P(Up) = Φ( ln(spot / open) / (σ_min · √minutes_remaining) )
 No directional view is taken or implied. σ is measured per asset and cadence
 from resolved history, never assumed:
 
-| Series | n | P(Up) | σ/min | evidence |
-| --- | ---: | ---: | ---: | --- |
-| BTC/5m | 512 | 0.4746 | 0.000513 | resolved windows |
-| BTC/15m | 2,880 | 0.4997 | 0.000504 | resolved windows |
-| BTC/60m | 720 | 0.5083 | 0.000517 | resolved windows |
-| BTC/240m | 177 | — | 0.000560 | **horizon-scaled** |
-| ETH/5m | 470 | 0.4936 | 0.000683 | resolved windows |
-| ETH/15m | 2,880 | 0.5083 | 0.000681 | resolved windows |
-| ETH/60m | 720 | 0.5111 | 0.000707 | resolved windows |
+| Series   |     n |  P(Up) |    σ/min | evidence           |
+| -------- | ----: | -----: | -------: | ------------------ |
+| BTC/5m   |   512 | 0.4746 | 0.000513 | resolved windows   |
+| BTC/15m  | 2,880 | 0.4997 | 0.000504 | resolved windows   |
+| BTC/60m  |   720 | 0.5083 | 0.000517 | resolved windows   |
+| BTC/240m |   177 |      — | 0.000560 | **horizon-scaled** |
+| ETH/5m   |   470 | 0.4936 | 0.000683 | resolved windows   |
+| ETH/15m  | 2,880 | 0.5083 | 0.000681 | resolved windows   |
+| ETH/60m  |   720 | 0.5111 | 0.000707 | resolved windows   |
 
 σ/min is stable within an asset across a 12× range of window lengths. That is
 the √t scaling the model assumes, **measured rather than asserted**.
 
 The BTC/240m row is the one entry not fitted from resolved venue windows,
 because the venue has never settled enough 4-hour windows to fit one. Its `n` is
-177 *non-overlapping 4-hour index returns*, not 177 settled markets — which is
+177 _non-overlapping 4-hour index returns_, not 177 settled markets — which is
 why `Vol` now carries a `Source` field, so the provenance travels with the
 number. [`docs/COVERAGE.md`](docs/COVERAGE.md) is how it was measured and why
-only the horizon *ratio* was imported rather than the absolute level.
+only the horizon _ratio_ was imported rather than the absolute level.
 
 ### Validation — this is the part that matters
+
+<p align="center">
+  <img src="docs/media/evidence.png" alt="Out-of-sample reliability: Brier 0.1357 against 0.2500, +45.7% skill, scored on 5,353 predictions the model never saw" width="100%">
+</p>
+<p align="center">
+  <sub>Fitted on the older half, scored on the newer half it has never seen. The reliability curve tracks the diagonal.</sub>
+</p>
 
 `cmd/backtest` replays every resolved window using **only information observable
 at each moment**, fits the one free parameter on the **older half**, and scores
@@ -221,11 +277,28 @@ One cadence admitted, three still refused, and four tests keep it that way. The
 deepest book on the venue is still not quoted: it is not short of a model, it is
 short of evidence. [`docs/COVERAGE.md`](docs/COVERAGE.md).
 
+<p align="center">
+  <img src="docs/media/coverage.png" alt="The live coverage table: every cadence marked QUOTABLE or REFUSED, with the measurement that decided it" width="100%">
+</p>
+<p align="center">
+  <sub>Every cadence carries the measurement that admitted or refused it. <code>ETH/240m</code> is rejected by the identical test that admitted <code>BTC/240m</code>.</sub>
+</p>
+
+The same refusal shows up live, per window, in the field:
+
+<p align="center">
+  <img src="docs/media/refused-cadences.png" alt="The live field, where uncalibrated cadences read: no validated model — we do not quote this cadence" width="100%">
+</p>
+
 ---
 
 ## Architecture
 
 Pure Go. No Node, no JavaScript runtime, no SDK dependency at runtime.
+
+<p align="center">
+  <img src="docs/media/architecture.png" alt="Price feed to spot poller to supervisor, one deadline-scoped goroutine per live window, funnelling into a single executor" width="100%">
+</p>
 
 ```
                     ┌──────────────────┐
@@ -254,20 +327,20 @@ Pure Go. No Node, no JavaScript runtime, no SDK dependency at runtime.
 
 **Why one goroutine per window:** a market is a finite state machine
 (`Listed → Trading → Locked → Resolved`) that is born and dies. A goroutine
-scoped by `context.WithDeadline(expiry)` *is* that state machine — inventory,
+scoped by `context.WithDeadline(expiry)` _is_ that state machine — inventory,
 working orders and P&L are goroutine-local, so most concurrency bugs cannot
 exist. Cadences run from 5 to 60 minutes simultaneously; a single sweep loop
 would have to pick one tick rate and would either burn RPC on long windows or
 under-serve short ones.
 
 **Why exactly one writer:** one signing key means one nonce sequence. N
-goroutines may *decide* concurrently; only one may *write*.
+goroutines may _decide_ concurrently; only one may _write_.
 
 ### Zero-inventory two-sided quoting
 
 Up and Down share a single book quoted in Up terms. When a Buy Up crosses a Buy
 Down, the pool **mints a fresh pair** from their combined collateral — no seller
-needed. So a resting Buy Up at *p* plus a Buy Down at *q* is a complete
+needed. So a resting Buy Up at _p_ plus a Buy Down at _q_ is a complete
 two-sided quote requiring **no inventory and no directional risk**: a matched
 pair always redeems to exactly 1.00, whoever wins.
 
@@ -291,7 +364,7 @@ Net       = Edge + Selection
 
 Edge is skill. Selection is variance, and over many windows it should average
 toward zero if the model is calibrated. Reporting them separately is the
-difference between *"we made money"* and *"we know why."*
+difference between _"we made money"_ and _"we know why."_
 
 ---
 
@@ -308,27 +381,37 @@ The model priced the contract at 0.381; the incumbent was asking 0.253; we
 crossed and filled. Verifiable on the
 [Shannon explorer](https://shannon-explorer.somnia.network).
 
+And it keeps score on itself — including the two numbers that make this strategy
+tradeable on Somnia specifically:
+
+<p align="center">
+  <img src="docs/media/system-chain.png" alt="The System page: live model health, cross-window exposure, and 100ms average block time" width="100%">
+</p>
+<p align="center">
+  <sub><b>100ms</b> average block time is the number the whole edge rests on: the edge lives in the seconds near expiry, and a chain slow to confirm could not safely act that close to it.</sub>
+</p>
+
 ---
 
 ## Safety
 
 A maker that guesses pays. Every gate below is enforced before an order is signed:
 
-| Gate | Behaviour |
-| --- | --- |
-| On-chain status | Only `Trading` (1). The indexer's status lags by seconds. |
-| Uncalibrated series | Refused outright — no model, no quote. A cadence enters the table only on its own passing measurement; ETH/240m and everything at 1440m and beyond are still refused, including the deepest book on the venue. |
-| Stale index price | Refuses to quote if spot is older than 10s. |
-| Window about to lock | Refuses inside the final 20s. |
-| Inventory caps | Stops quoting the side that would deepen an oversized position. |
-| Order expiry | Mandatory, capped at the market's own — a dead-man's switch. |
-| Grid snapping | Prices to tick, sizes floored to lot; a zero result skips the order. |
-| Cancel-replace | Every resting order pulled before requoting, read from the pool. |
-| Take threshold | Must clear a fixed edge, the model's forward uncertainty, **and** its measured calibration residual at that probability. |
-| Takes answer to the quote gates | Crossing is a write, so it re-uses every pre-signing check the maker path respects: stale spot, imminent lock, certainty bounds, inventory caps. A take that skipped them would route around all of them. |
-| Per-window take budget | At most 2 crossings, 15 collateral, and one per 45s. Takes inside a window are perfectly correlated, so repeating one is not diversification. |
-| Unsupported certainty | The calibration map clamps outside its fitted range instead of extrapolating toward 0 or 1. |
-| Mainnet | `-live` refuses to run on mainnet. Testnet only. |
+| Gate                            | Behaviour                                                                                                                                                                                                      |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| On-chain status                 | Only `Trading` (1). The indexer's status lags by seconds.                                                                                                                                                      |
+| Uncalibrated series             | Refused outright — no model, no quote. A cadence enters the table only on its own passing measurement; ETH/240m and everything at 1440m and beyond are still refused, including the deepest book on the venue. |
+| Stale index price               | Refuses to quote if spot is older than 10s.                                                                                                                                                                    |
+| Window about to lock            | Refuses inside the final 20s.                                                                                                                                                                                  |
+| Inventory caps                  | Stops quoting the side that would deepen an oversized position.                                                                                                                                                |
+| Order expiry                    | Mandatory, capped at the market's own — a dead-man's switch.                                                                                                                                                   |
+| Grid snapping                   | Prices to tick, sizes floored to lot; a zero result skips the order.                                                                                                                                           |
+| Cancel-replace                  | Every resting order pulled before requoting, read from the pool.                                                                                                                                               |
+| Take threshold                  | Must clear a fixed edge, the model's forward uncertainty, **and** its measured calibration residual at that probability.                                                                                       |
+| Takes answer to the quote gates | Crossing is a write, so it re-uses every pre-signing check the maker path respects: stale spot, imminent lock, certainty bounds, inventory caps. A take that skipped them would route around all of them.      |
+| Per-window take budget          | At most 2 crossings, 15 collateral, and one per 45s. Takes inside a window are perfectly correlated, so repeating one is not diversification.                                                                  |
+| Unsupported certainty           | The calibration map clamps outside its fitted range instead of extrapolating toward 0 or 1.                                                                                                                    |
+| Mainnet                         | `-live` refuses to run on mainnet. Testnet only.                                                                                                                                                               |
 
 The last three exist because of a specific loss, not in principle. See
 [`docs/AUTOPSY.md`](docs/AUTOPSY.md).
@@ -413,16 +496,16 @@ never put a real/mainnet key in `.env`.
 
 ### Environment variables
 
-| Variable | Required by | Notes |
-| --- | --- | --- |
+| Variable               | Required by                                                 | Notes                                                                       |
+| ---------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `FIRSTBID_PRIVATE_KEY` | `engine` service, only when its `command:` includes `-live` | Throwaway Shannon testnet key. Never committed, never baked into the image. |
 
 The `dashboard` service takes no environment variables at all.
 
 ### Ports
 
-| Port | Service | Purpose |
-| --- | --- | --- |
+| Port   | Service     | Purpose                                             |
+| ------ | ----------- | --------------------------------------------------- |
 | `8080` | `dashboard` | UI + `/api/*` (calibration, live book, P&L, traces) |
 
 ### Persistence
@@ -514,26 +597,26 @@ died on the first poll of the tool written to test it. The sixth was one of our
 own safety rules — the only one that turned out to be too strong rather than too
 weak.
 
-1. *"The books are empty, so supply liquidity."* — Books have depth, on both the
+1. _"The books are empty, so supply liquidity."_ — Books have depth, on both the
    chain and the SDK. Our probe had been reading the wrong fields
    (`book.bids` on a type that exposes `yesBids`), so we spent a day believing a
    defect that did not exist. Retracted in the feedback report.
-2. *"Winnings go unredeemed."* — 99.4% get claimed. A promising 23.7% figure
+2. _"Winnings go unredeemed."_ — 99.4% get claimed. A promising 23.7% figure
    turned out to be an artifact of a 1000-row query cap.
-3. *"We can simply quote tighter than the incumbents."* — Not mid-window we
+3. _"We can simply quote tighter than the incumbents."_ — Not mid-window we
    can't; our own model says that would be reckless. The real edge is pricing
-   *correctly across the window's life*.
-4. *"Our model is calibrated, so we can cross the book on its confidence."* —
+   _correctly across the window's life_.
+4. _"Our model is calibrated, so we can cross the book on its confidence."_ —
    **Killed by our own trading.** The model was calibrated against a backtest
    that leaked 59 seconds of the future; on the feed we actually trade it was
    overconfident by 15 points in exactly the cell where every fill landed. The
    attribution split is what caught it: edge stayed positive while selection
    went to −41.44, which is the signature of a wrong belief rather than bad
    execution. [`docs/AUTOPSY.md`](docs/AUTOPSY.md).
-5. *"Simultaneous windows on one underlying must be mutually consistent, so
-   inconsistency is riskless profit."* — **True, and irrelevant here.** Two
+5. _"Simultaneous windows on one underlying must be mutually consistent, so
+   inconsistency is riskless profit."_ — **True, and irrelevant here.** Two
    windows expiring at the same second with strikes K₁ < K₂ must satisfy
-   P(Up | K₁) ≥ P(Up | K₂) under *every* probability measure, so a crossed
+   P(Up | K₁) ≥ P(Up | K₂) under _every_ probability measure, so a crossed
    ladder would be profit that does not require our model to be right at all.
    That was the point: it would have escaped the dependency that cost us 37%.
    `cmd/surface` was built to measure it and found **zero same-expiry pairs
@@ -542,7 +625,7 @@ weak.
    coincide only at alignment boundaries, and with 8 live markets there is no
    cross-section to arbitrage. The tool prints that verdict itself and
    names the surviving idea. The thesis cost two commands rather than two days.
-6. *"Refusing every cadence without resolved venue history is conservative."* —
+6. _"Refusing every cadence without resolved venue history is conservative."_ —
    **Killed by the census the dead thesis left behind.** The refusal was right;
    the reason was too strong, and it was excluding 97.9% of the venue's trades.
    σ measured from the price process agrees with the resolved-window fit to
@@ -556,8 +639,8 @@ was written to support.
 Four claims we are **not** making. The corrected engine has not yet been run
 live, so there is no before/after P&L pair yet, only replay and unit tests. And
 unconditional reliability does not license taking: a taker only ever trades the
-subset where the book disagrees with it, and calibration *conditional on
-disagreement* is still unmeasured. The indexer's `Order` history makes it
+subset where the book disagrees with it, and calibration _conditional on
+disagreement_ is still unmeasured. The indexer's `Order` history makes it
 measurable, and that is the next piece of work.
 
 The two new ones come with coverage. **BTC/240m is priced, not proven** — it is
